@@ -1,0 +1,710 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>リノア シフト表</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=BIZ+UDPGothic:wght@400;700&family=Zen+Kaku+Gothic+New:wght@500;700;900&display=swap">
+<script charset="utf-8" src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<style>
+:root{
+  --bg:#F4F6F4; --panel:#FFFFFF; --ink:#22302E; --muted:#6C7A77; --line:#DCE3DF; --line2:#EEF2EF;
+  --accent:#1F6F6B; --accent-ink:#165754; --accent-soft:#DDEEEC; --accent-tint:#EEF6F5;
+  --sat:#3568B5; --sun:#C64B3C; --today:#FFF3CF; --warn:#B5651D; --warn-soft:#FBEBDD; --ok:#2F7D4E; --ok-soft:#E1F1E6; --ng:#B93F3F; --ng-soft:#F8E3E3;
+  --wish-x:#C64B3C; --wish-p:#B5651D; --chip:#E6ECE9; --chip-ink:#2A3A37;
+  --douhan:#EFDDF0; --douhan-ink:#7E3F7A; --early:#FBE6C4; --early-ink:#8A550E;
+  --shadow:0 8px 28px rgba(30,60,55,.12);
+  --f-body:"BIZ UDPGothic","Hiragino Sans","Yu Gothic",system-ui,sans-serif;
+  --f-disp:"Zen Kaku Gothic New","Hiragino Sans","Yu Gothic",system-ui,sans-serif;
+  color-scheme:light;
+}
+@media (prefers-color-scheme: dark){:root{
+  --bg:#171D1C; --panel:#212928; --ink:#ECF1EF; --muted:#9BABA7; --line:#36423F; --line2:#2B3533;
+  --accent:#5FB8B2; --accent-ink:#8ED3CE; --accent-soft:#234644; --accent-tint:#1D3331;
+  --sat:#86AEE8; --sun:#EE8B7E; --today:#4A3E1F; --warn:#E0A05E; --warn-soft:#44321E; --ok:#7CC79A; --ok-soft:#1F3B2A; --ng:#EF8585; --ng-soft:#46262A;
+  --wish-x:#EE8B7E; --wish-p:#E0A05E; --chip:#2F3B39; --chip-ink:#E3EBE8;
+  --douhan:#4A3049; --douhan-ink:#E6B8E3; --early:#4A3A1C; --early-ink:#F0C47A;
+  --shadow:0 8px 28px rgba(0,0,0,.4); color-scheme:dark;
+}}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.65;-webkit-font-smoothing:antialiased;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+button,input,select,textarea{font:inherit;color:inherit}
+h1,h2,h3{margin:0;font-family:var(--f-disp);font-weight:700;text-wrap:balance}
+.app{max-width:760px;margin:0 auto;min-height:100vh;display:flex;flex-direction:column;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.hdr{padding:16px 0 10px;display:flex;align-items:flex-end;justify-content:space-between;gap:12px}
+.brand .eyebrow{font-size:11px;letter-spacing:.18em;color:var(--accent);text-transform:uppercase;font-weight:700}
+.brand h1{font-size:20px;letter-spacing:.04em}
+.brand .sub{font-size:12px;color:var(--muted)}
+.who{font-size:12px;color:var(--muted);text-align:right;line-height:1.4}
+.who b{display:block;color:var(--ink);font-size:14px}
+.tabs{display:flex;gap:6px;margin:4px 0 12px;overflow-x:auto;padding-bottom:2px}
+.tabs button{flex:0 0 auto;border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:7px 14px;font-size:13px;cursor:pointer;min-height:36px}
+.tabs button.on{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:700}
+.main{flex:1;padding-bottom:40px;display:flex;flex-direction:column;gap:12px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.card h2{font-size:16px;margin-bottom:8px}
+.card h2 small{font-family:var(--f-body);font-weight:400;color:var(--muted);font-size:12px;margin-left:8px}
+.note{font-size:12px;color:var(--muted)}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.space{justify-content:space-between}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border:1px solid var(--accent);background:var(--accent);color:#fff;border-radius:999px;padding:9px 18px;font-weight:700;cursor:pointer;min-height:40px;font-size:14px}
+.btn.ghost{background:transparent;color:var(--accent-ink);border-color:var(--line)}
+.btn.sm{padding:5px 12px;min-height:32px;font-size:12px}
+.btn.block{width:100%}
+.btn.danger{background:transparent;color:var(--ng);border-color:var(--ng)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.mnav{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.mnav button{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:6px 12px;cursor:pointer;min-height:36px}
+.mnav .m{font-family:var(--f-disp);font-size:18px;font-weight:700;letter-spacing:.04em}
+.mnav .m small{font-size:12px;color:var(--muted);font-weight:400;margin-left:6px}
+.badge{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700;padding:2px 9px;border-radius:999px;background:var(--line2);color:var(--muted);white-space:nowrap}
+.badge.col{background:var(--accent-soft);color:var(--accent-ink)}
+.badge.edit{background:var(--warn-soft);color:var(--warn)}
+.badge.pub{background:var(--ok-soft);color:var(--ok)}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:3px;font-variant-numeric:tabular-nums}
+.cal .dh{text-align:center;font-size:11px;color:var(--muted);padding:2px 0 4px}
+.cal .dh.sat{color:var(--sat)}.cal .dh.sun{color:var(--sun)}
+.cal .d{min-height:62px;border:1px solid var(--line2);border-radius:8px;padding:4px 4px 5px;background:var(--panel);display:flex;flex-direction:column;gap:3px;text-align:left;cursor:pointer;position:relative;min-width:0}
+.cal .d.empty{border-color:transparent;background:transparent;cursor:default}
+.cal .d .n{font-size:12px;font-weight:700;line-height:1;width:20px;height:20px;display:inline-flex;align-items:center;justify-content:center;border-radius:50%}
+.cal .d.sat .n{color:var(--sat)}.cal .d.sun .n,.cal .d.hol .n{color:var(--sun)}
+.cal .d.sel{outline:2px solid var(--accent);outline-offset:1px}
+.cal .d.closed{background:var(--bg)}
+.cal.mc .d{min-height:92px}
+.cal.mc .d .top{display:flex;justify-content:space-between;align-items:center;gap:2px}
+.cal.mc .d .cnt{font-size:11px;font-weight:700;color:var(--muted);line-height:1;white-space:nowrap}
+.cal.mc .d .cnt small{font-size:9px;font-weight:400}
+.cal.mc .d .cnt.short{color:var(--ng)}.cal.mc .d .cnt.ok{color:var(--ok)}.cal.mc .d .cnt.over{color:var(--accent-ink)}.cal.mc .d .cnt.zero{color:var(--line)}
+.cal.mc .d .names{display:flex;flex-direction:column;gap:2px;overflow:hidden;min-width:0}
+.cal.mc .nm{font-size:10.5px;line-height:1.3;padding:1px 3px;border-radius:3px;background:var(--chip);color:var(--chip-ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:block}
+.cal.mc .nm .f{display:none}
+.cal.mc .nm.dh{background:var(--douhan);color:var(--douhan-ink)}
+.cal.mc .nm.ea{background:var(--early);color:var(--early-ink)}
+.cal.mc .nm.dh.ea{background:linear-gradient(90deg,var(--douhan) 50%,var(--early) 50%);color:var(--ink)}
+.cal.mc .nm.me{font-weight:900;box-shadow:inset 0 0 0 1.5px var(--accent);color:var(--accent-ink)}
+.cal.mc .nm.me.dh{color:var(--douhan-ink)}.cal.mc .nm.me.ea{color:var(--early-ink)}
+.cal.mc .nm.cus{text-decoration:underline dotted;text-underline-offset:2px}
+.cal.mc .more{font-size:10px;color:var(--muted);line-height:1.2}
+.cal .d.today{background:var(--today);box-shadow:inset 0 0 0 2px var(--accent)}
+.cal .d.today .n{background:var(--accent);color:#fff!important}
+.cal .d.past{opacity:.72}
+.cal .d.past.today{opacity:1}
+@media (min-width:600px){.cal.mc .nm .s{display:none}.cal.mc .nm .f{display:inline}.cal.mc .d{min-height:110px}.cal.mc .nm{font-size:12px}}
+.cal .d .w{font-size:16px;font-weight:900;line-height:1.1}
+.cal .d .w.x{color:var(--wish-x)}.cal .d .w.p{color:var(--wish-p);font-size:11px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cal .d .w.o{color:var(--muted);font-weight:400}
+.legend{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:8px}
+.legend span{display:inline-flex;align-items:center;gap:4px}
+.legend i{display:inline-block;width:14px;height:14px;border-radius:3px}
+.sum{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:10px}
+.sum div{background:var(--bg);border-radius:8px;padding:8px 10px;text-align:center}
+.sum b{display:block;font-family:var(--f-disp);font-size:20px;font-variant-numeric:tabular-nums;line-height:1.1}
+.sum span{font-size:11px;color:var(--muted)}
+.people{display:flex;flex-direction:column;gap:6px}
+.people .pr{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:8px 10px;border:1px solid var(--line2);border-radius:8px}
+.people .pr .nm{font-weight:700}
+.people .pr .tm{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.people .pr.off{opacity:.55}
+.pill{font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px;white-space:nowrap;background:var(--chip);color:var(--chip-ink)}
+.pill.on{background:var(--accent-soft);color:var(--accent-ink)}
+.pill.dh{background:var(--douhan);color:var(--douhan-ink)}.pill.ea{background:var(--early);color:var(--early-ink)}
+.tagbtns{display:flex;gap:6px;flex-wrap:wrap}
+.tagbtns button{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:4px 10px;font-size:12px;cursor:pointer;min-height:30px;color:var(--muted)}
+.tagbtns button.on.dh{background:var(--douhan);color:var(--douhan-ink);border-color:var(--douhan-ink);font-weight:700}
+.tagbtns button.on.ea{background:var(--early);color:var(--early-ink);border-color:var(--early-ink);font-weight:700}
+.wishctl{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
+.timebox{display:grid;grid-template-columns:1fr auto 1fr;gap:8px;align-items:center;margin-top:8px}
+.timebox input{border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--bg);min-height:40px;width:100%}
+.f{display:flex;flex-direction:column;gap:12px}
+.f label{font-size:13px;font-weight:700;display:flex;flex-direction:column;gap:5px}
+.f label span.h{font-weight:400;color:var(--muted);font-size:12px}
+.f input[type=text],.f input[type=number],.f input[type=time],.f input[type=password],.f select,.f textarea{border:1px solid var(--line);border-radius:8px;padding:9px 12px;background:var(--bg);width:100%;min-height:42px}
+.f textarea{min-height:72px}
+.f .inline{flex-direction:row;align-items:center;gap:8px}
+.f .inline input[type=checkbox]{width:18px;height:18px}
+.err{color:var(--ng);font-size:13px}
+.toast{position:fixed;left:50%;bottom:calc(24px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 18px;border-radius:999px;font-size:13px;box-shadow:var(--shadow);opacity:0;pointer-events:none;transition:opacity .2s;z-index:50;max-width:90vw;text-align:center}
+.toast.on{opacity:1}
+.foot{padding:14px 0 28px;font-size:11px;color:var(--muted);text-align:center;display:flex;flex-direction:column;gap:4px}
+.foot a{color:var(--muted)}
+.empty{text-align:center;padding:26px 10px;color:var(--muted);font-size:13px}
+.empty b{display:block;color:var(--ink);font-family:var(--f-disp);font-size:16px;margin-bottom:4px}
+.sheet-bg{position:fixed;inset:0;background:rgba(10,20,18,.45);z-index:40;display:flex;align-items:flex-end;justify-content:center}
+.sheet{background:var(--panel);width:100%;max-width:760px;border-radius:16px 16px 0 0;padding:16px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-bottom:calc(20px + env(safe-area-inset-bottom,0px));box-shadow:var(--shadow);max-height:88vh;overflow:auto}
+.sheet h3{font-size:17px;margin-bottom:2px}
+.sheet .subh{font-size:13px;color:var(--muted);margin-bottom:10px}
+.srow{display:flex;flex-direction:column;gap:6px;padding:9px 0;border-bottom:1px solid var(--line2)}
+.srow .l1{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.srow .who{font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.srow .who .wm{font-size:11px;font-weight:700;margin-left:6px}
+.wm.x{color:var(--wish-x)}.wm.p{color:var(--wish-p)}.wm.o{color:var(--muted);font-weight:400}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden;flex:0 0 auto}
+.seg button{border:0;background:var(--panel);padding:6px 12px;font-size:13px;cursor:pointer;min-height:34px}
+.seg button.on{background:var(--ink);color:var(--bg);font-weight:700}
+.seg button.on.ok{background:var(--accent);color:#fff}
+.seg button.on.ng{background:#8A9793;color:#fff}
+.srow .times{display:grid;grid-template-columns:1fr auto 1fr auto;gap:6px;align-items:center;font-size:12px;color:var(--muted)}
+.srow .times input{border:1px solid var(--line);border-radius:8px;padding:6px 8px;background:var(--bg);min-height:36px;width:100%;min-width:0;font-size:13px}
+.srow .times .x{border:1px solid var(--line);background:var(--panel);border-radius:8px;min-height:36px;width:36px;cursor:pointer;color:var(--muted)}
+.tbl{overflow-x:auto}
+table.list{border-collapse:collapse;width:100%;font-size:13px}
+table.list th,table.list td{text-align:left;padding:8px 8px;border-bottom:1px solid var(--line2);vertical-align:top}
+table.list th{font-size:11px;color:var(--muted);font-weight:500;letter-spacing:.04em;white-space:nowrap}
+.stf{display:grid;grid-template-columns:1fr auto;gap:4px 10px;padding:10px 12px;border:1px solid var(--line2);border-radius:10px;align-items:center}
+.stf .nm{font-weight:700}
+.stf .mt{font-size:12px;color:var(--muted)}
+.stf.inactive{opacity:.5}
+.reqrow{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+.reqrow label{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:12px;font-weight:700}
+.reqrow label:nth-child(1){color:var(--sun)}.reqrow label:nth-child(7){color:var(--sat)}
+.reqrow input{border:1px solid var(--line);border-radius:8px;padding:6px 4px;background:var(--bg);min-height:38px;width:100%;text-align:center}
+.kv{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+pre.txt{white-space:pre-wrap;font:12px/1.6 ui-monospace,Menlo,monospace;background:var(--bg);border-radius:8px;padding:10px;max-height:220px;overflow:auto;margin:8px 0 0}
+.hint{background:var(--accent-tint);border-radius:8px;padding:10px 12px;font-size:12px;color:var(--accent-ink)}
+.punch{display:flex;flex-direction:column;align-items:center;gap:10px;padding:10px 0 6px;text-align:center}
+.punch .clock{font-family:var(--f-disp);font-size:44px;font-weight:900;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:.02em}
+.punch .date{font-size:13px;color:var(--muted)}
+.punch .big{width:100%;max-width:340px;min-height:76px;font-size:22px;border-radius:18px;letter-spacing:.1em}
+.punch .big.out{background:var(--warn);border-color:var(--warn)}
+.punch .st{font-size:14px;line-height:1.6}
+.punch .st b{font-family:var(--f-disp);font-size:18px}
+.brkrow{display:flex;align-items:center;gap:8px;font-size:13px;justify-content:center}
+.brkrow input{border:1px solid var(--line);border-radius:8px;padding:6px 8px;background:var(--bg);width:80px;min-height:40px;text-align:center}
+.tcl{display:flex;flex-direction:column;gap:4px}
+.tcl .r{display:grid;grid-template-columns:64px 1fr auto;gap:8px;align-items:center;padding:7px 10px;border:1px solid var(--line2);border-radius:8px;font-size:13px;font-variant-numeric:tabular-nums}
+.tcl .r .dd{font-weight:700}.tcl .r .dd.sat{color:var(--sat)}.tcl .r .dd.sun{color:var(--sun)}
+.tcl .r .raw{font-size:11px;color:var(--muted)}
+.tcl .r .hh{font-weight:700;font-family:var(--f-disp);font-size:15px}
+.tcl .r.open{border-color:var(--warn);background:var(--warn-soft)}
+.tcl .r.manual .raw::after{content:" 手入力";color:var(--warn)}
+.tce{display:grid;grid-template-columns:44px 1fr 1fr 64px auto;gap:6px;align-items:center;font-size:12px}
+.tce input{border:1px solid var(--line);border-radius:8px;padding:6px 6px;background:var(--bg);min-height:38px;width:100%;min-width:0}
+.tce .x{border:1px solid var(--line);background:var(--panel);border-radius:8px;min-height:38px;width:38px;cursor:pointer;color:var(--muted)}
+.tce .dd{font-weight:700;text-align:center}
+.warnbox{background:var(--warn-soft);color:var(--warn);border-radius:8px;padding:10px 12px;font-size:13px}
+.loading{text-align:center;padding:60px 20px;color:var(--muted)}
+.loading b{display:block;font-family:var(--f-disp);font-size:18px;color:var(--ink);margin-bottom:6px}
+.savebar{position:fixed;top:calc(8px + env(safe-area-inset-top,0px));left:50%;transform:translateX(-50%);background:var(--accent);color:#fff;font-size:12px;padding:4px 12px;border-radius:999px;z-index:60;box-shadow:var(--shadow)}
+@media (max-width:420px){.sum b{font-size:18px}}
+@media (prefers-reduced-motion:reduce){.toast{transition:none}}
+</style>
+</head>
+<body>
+<div class="app" id="app"><div class="loading"><b>読み込み中…</b>LINEの情報を確認しています</div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+/* ============================================================
+   ★ 設定：ここだけ書き換える（README 参照）
+   ============================================================ */
+const CONFIG = {
+  liffId: "LIFF_ID_HERE",                 // LINE Developers の LIFF ID（例 2001234567-AbCdEfGh）
+  apiUrl: "GAS_WEBAPP_URL_HERE"           // Apps Script のウェブアプリ URL（…/exec）
+};
+
+/* ============================================================
+   共通
+   ============================================================ */
+const TC_MODES={nearest:"四捨五入（15分未満は切り捨て、15分以上は30分扱い）",floor:"すべて切り捨て",ceil:"すべて切り上げ",favor:"出勤は切り上げ・退勤は切り捨て"};
+const WD = ["日","月","火","水","木","金","土"];
+const pad = n => String(n).padStart(2,"0");
+const ymd = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const ymOf = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}`;
+const parseYM = s => { const [y,m]=s.split("-").map(Number); return {y,m}; };
+const daysIn = (y,m) => new Date(y,m,0).getDate();
+const addMonth = (ym,n) => { const {y,m}=parseYM(ym); return ymOf(new Date(y,m-1+n,1)); };
+const dow = (y,m,d) => new Date(y,m-1,d).getDay();
+const TODAY = ymd(new Date());
+const THIS_YM = ymOf(new Date());
+
+const holCache = {};
+function holidays(y){
+  if(holCache[y]) return holCache[y];
+  const set = new Set(); const add=(m,d)=>set.add(`${m}-${d}`);
+  [[1,1],[2,11],[2,23],[4,29],[5,3],[5,4],[5,5],[8,11],[11,3],[11,23]].forEach(([m,d])=>add(m,d));
+  const nthMon=(m,n)=>{ const first=new Date(y,m-1,1).getDay(); return 1+((8-first)%7)+(n-1)*7; };
+  add(1,nthMon(1,2)); add(7,nthMon(7,3)); add(9,nthMon(9,3)); add(10,nthMon(10,2));
+  add(3,Math.floor(20.8431+0.242194*(y-1980)-Math.floor((y-1980)/4)));
+  add(9,Math.floor(23.2488+0.242194*(y-1980)-Math.floor((y-1980)/4)));
+  [...set].forEach(k=>{ const [m,d]=k.split("-").map(Number); const dt=new Date(y,m-1,d); if(dt.getDay()===0){ let n=new Date(dt); do{ n.setDate(n.getDate()+1);}while(set.has(`${n.getMonth()+1}-${n.getDate()}`)); if(n.getFullYear()===y) add(n.getMonth()+1,n.getDate()); }});
+  for(let m=1;m<=12;m++){ for(let d=2;d<daysIn(y,m);d++){ const dt=new Date(y,m-1,d); if(dt.getDay()===0||set.has(`${m}-${d}`)) continue; if(set.has(`${m}-${d-1}`)&&set.has(`${m}-${d+1}`)) add(m,d); } }
+  holCache[y]=set; return set;
+}
+const isHol=(y,m,d)=>holidays(y).has(`${m}-${d}`);
+const isClosedDay=(y,m,d)=>{ const S=Store.settings; return (S.closed||[]).includes(dow(y,m,d)) || (S.closedHol!==false && isHol(y,m,d)); };
+
+function hoursOf(s,e,brk){ const [sh,sm]=s.split(":").map(Number),[eh,em]=e.split(":").map(Number); let min=(eh*60+em)-(sh*60+sm); if(min<0) min+=24*60; return Math.max(0,(min-(brk||0))/60); }
+const fmtH = h => (Math.round(h*10)/10).toLocaleString("ja-JP",{maximumFractionDigits:1});
+const dropZero = hm => String(hm||"").replace(/^0/,"");
+const baseOf = val => String(val||"").split("|")[0];
+function tagsOf(val){ const f=String(val||"").split("|")[1]||""; return {douhan:f.includes("d"),early:f.includes("h")}; }
+function withTags(base,tags){ const f=(tags?.douhan?"d":"")+(tags?.early?"h":""); return f?`${base}|${f}`:base; }
+function cellInfo(val,S){
+  if(!val) return null;
+  const base=baseOf(val), tags=tagsOf(val);
+  if(base==="OFF") return {kind:"off",label:"休",hours:0,tags};
+  if(base.startsWith("C:")){ const [s,e]=base.slice(2).split("-"); return {kind:"custom",label:`${dropZero(s)}〜${dropZero(e)}`,start:s,end:e,hours:hoursOf(s,e,0),tags}; }
+  return {kind:"on",label:"出勤",start:S.openStart,end:S.openEnd,hours:hoursOf(S.openStart,S.openEnd,0),tags};
+}
+const tagLabel = tags => [tags?.douhan?"同伴":"",tags?.early?"早上がり":""].filter(Boolean).join("・");
+const tagCls = tags => (tags?.douhan?" dh":"")+(tags?.early?" ea":"");
+const minOf = hm => { const [h,m]=hm.split(":").map(Number); return h*60+m; };
+const hmOf = min => { min=((min%1440)+1440)%1440; return `${pad(Math.floor(min/60))}:${pad(min%60)}`; };
+function roundPunch(hm,kind){
+  const S=Store.settings, u=+S.tcUnit||30, mode=S.tcMode||"nearest", m=minOf(hm); let r;
+  if(mode==="floor") r=Math.floor(m/u)*u; else if(mode==="ceil") r=Math.ceil(m/u)*u;
+  else if(mode==="favor") r= kind==="in"?Math.ceil(m/u)*u:Math.floor(m/u)*u;
+  else r=Math.round(m/u)*u;
+  return hmOf(r);
+}
+function calcRec(rec){
+  if(!rec||!rec.in) return null;
+  const inR=roundPunch(rec.in.slice(11,16),"in");
+  if(!rec.out) return {inR,open:true,mins:0};
+  const outR=roundPunch(rec.out.slice(11,16),"out");
+  const dayDiff=Math.round((new Date(rec.out.slice(0,10)+"T00:00")-new Date(rec.in.slice(0,10)+"T00:00"))/86400000);
+  let mins=minOf(outR)-minOf(inR)+dayDiff*1440;
+  if(rec.out.slice(11,16)<rec.in.slice(11,16)&&dayDiff===0) mins+=1440;
+  mins-=(+rec.brk||0);
+  return {inR,outR,mins:Math.max(0,mins),open:false};
+}
+function dayCounts(ym){
+  const {y,m}=parseYM(ym), S=Store.settings, sh=Store.shiftOf(ym), list=activeStaff(), out={};
+  for(let d=1;d<=daysIn(y,m);d++){
+    const w=dow(y,m,d), closed=isClosedDay(y,m,d), req=closed?0:((S.required||[])[w]??0), on=[], off=[], undecided=[];
+    list.forEach(s=>{ const v=sh.cells[`${d}_${s.id}`], info=cellInfo(v,S); if(info&&info.kind!=="off") on.push({s,info}); else if(info) off.push({s,info}); else undecided.push({s,info:null}); });
+    out[d]={total:on.length,req,closed,on,off,undecided,short:!closed&&on.length<req,over:!closed&&req>0&&on.length>req};
+  }
+  return out;
+}
+
+/* ============================================================
+   Store：LIFF で本人確認し、Apps Script の API でやりとり
+   ============================================================ */
+const Store = {
+  token:null, profile:null, me:null, isAdmin:false, liffUrl:"",
+  settings:{name:"シフト表",eyebrow:"",deadlineDay:20,openStart:"11:00",openEnd:"18:00",required:[2,2,2,2,2,3,3],closed:[],closedHol:true,tcUnit:30,tcMode:"nearest"},
+  staff:[], months:{}, loading:{}, listeners:[], ready:false, error:null, lastFetch:0, pendingSaves:0,
+  on(fn){ this.listeners.push(fn); }, emit(){ this.listeners.forEach(f=>f()); },
+  async init(){
+    if(!CONFIG.liffId || CONFIG.liffId.includes("HERE") || !CONFIG.apiUrl || CONFIG.apiUrl.includes("HERE")){ this.error="設定が未入力です（index.html の CONFIG に LIFF ID と API の URL を入れてください）"; this.emit(); return; }
+    try{
+      await liff.init({liffId:CONFIG.liffId});
+      if(!liff.isLoggedIn()){ liff.login({redirectUri:location.href}); return; }
+      this.token=liff.getAccessToken();
+    }catch(e){ this.error="LINEの確認に失敗しました。LINEアプリからもう一度開いてください。（"+(e.message||e)+"）"; this.emit(); return; }
+    await this.bootstrap();
+  },
+  async api(action,data){
+    const res=await fetch(CONFIG.apiUrl,{method:"POST",body:JSON.stringify({action,accessToken:this.token,data:data||{}})});
+    const j=await res.json().catch(()=>({ok:false,error:"bad_response"}));
+    if(!j.ok){ if(j.error==="unauthorized"){ try{ liff.logout(); }catch(e){} liff.login({redirectUri:location.href}); } throw new Error(j.error||"error"); }
+    return j;
+  },
+  wantMonths(){ const s=new Set([state.month,THIS_YM,addMonth(THIS_YM,-1),state.wishMonth,state.tcMonth]); return [...s]; },
+  async bootstrap(){
+    try{
+      const j=await this.api("bootstrap",{months:this.wantMonths()});
+      this.profile=j.profile; this.settings={...this.settings,...j.settings}; this.staff=j.staff; this.me=j.me; this.isAdmin=j.isAdmin; this.liffUrl=j.liffUrl||"";
+      Object.assign(this.months,j.months); this.ready=true; this.error=null; this.lastFetch=Date.now();
+    }catch(e){ this.error="データを読み込めませんでした。電波の良いところでもう一度開いてください。（"+(e.message||e)+"）"; }
+    this.emit();
+  },
+  async refresh(){ if(!this.ready) return this.bootstrap(); try{ const j=await this.api("getMonths",{months:Object.keys(this.months).concat(this.wantMonths())}); Object.assign(this.months,j.months); const b=await this.api("bootstrap",{months:[]}); this.settings={...this.settings,...b.settings}; this.staff=b.staff; this.me=b.me; this.isAdmin=b.isAdmin; this.lastFetch=Date.now(); }catch(e){} this.emit(); },
+  subscribeMonth(ym){ if(!this.ready||this.months[ym]||this.loading[ym]) return; this.loading[ym]=true; this.api("getMonths",{months:[ym]}).then(j=>{ Object.assign(this.months,j.months); }).catch(()=>{}).finally(()=>{ delete this.loading[ym]; this.emit(); }); },
+  monthData(ym){ return this.months[ym]||{shift:null,wishes:{},timecards:{}}; },
+  wishesOf(ym){ return this.monthData(ym).wishes||{}; },
+  shiftOf(ym){ return this.monthData(ym).shift||{month:ym,status:"collecting",cells:{}}; },
+  tcOf(ym){ return this.monthData(ym).timecards||{}; },
+  setMonthPart(ym,part,val){ this.months[ym]=this.months[ym]||{shift:null,wishes:{},timecards:{}}; this.months[ym][part]=val; },
+  /* --- 書き込み --- */
+  async register(name){ const j=await this.api("register",{name}); this.me=j.me; this.staff=j.staff; this.emit(); },
+  async saveWish(w){ const j=await this.api("saveWish",w); const ws={...this.wishesOf(w.month)}; ws[j.wish.staffId]=j.wish; this.setMonthPart(w.month,"wishes",ws); this.emit(); },
+  async punch(data){ const j=await this.api("punch",data); const tc={...this.tcOf(j.timecard.month)}; tc[j.timecard.staffId]=j.timecard; this.setMonthPart(j.timecard.month,"timecards",tc); this.emit(); return j; },
+  async adminLogin(pin){ const j=await this.api("adminLogin",{pin}); this.isAdmin=!!j.isAdmin; await this.bootstrap(); },
+  async saveSettings(patch){ this.settings={...this.settings,...patch}; this.emit(); const j=await this.api("saveSettings",{settings:patch}); this.settings={...this.settings,...j.settings}; this.emit(); },
+  async upsertStaff(s){ const j=await this.api("upsertStaff",{staff:s}); this.staff=j.staff; this.emit(); },
+  async deleteStaff(id){ const j=await this.api("deleteStaff",{id}); this.staff=j.staff; this.emit(); },
+  saveTimer:null, dirtyShift:null,
+  // シフトのマスは画面上ですぐ反映し、まとめて保存（連続タップでも1回ずつ待たせない）
+  setShiftLocal(doc){ this.setMonthPart(doc.month,"shift",doc); this.dirtyShift=doc; clearTimeout(this.saveTimer); this.pendingSaves++; this.emit(); this.saveTimer=setTimeout(()=>this.flushShift(),900); },
+  async flushShift(){ const doc=this.dirtyShift; if(!doc) return; this.dirtyShift=null; try{ const j=await this.api("saveShift",{month:doc.month,status:doc.status,cells:doc.cells}); if(!this.dirtyShift) this.setMonthPart(doc.month,"shift",j.shift); }catch(e){ toast("保存できませんでした。通信を確認してください"); } this.pendingSaves=0; this.emit(); },
+  async saveShiftNow(doc){ clearTimeout(this.saveTimer); this.dirtyShift=null; this.setMonthPart(doc.month,"shift",doc); this.pendingSaves++; this.emit(); const j=await this.api("saveShift",{month:doc.month,status:doc.status,cells:doc.cells}); this.setMonthPart(doc.month,"shift",j.shift); this.pendingSaves=0; this.emit(); return j.shift; },
+  async saveTC(doc){ const j=await this.api("saveTimecard",doc); const tc={...this.tcOf(doc.month)}; tc[doc.staffId]=j.timecard; this.setMonthPart(doc.month,"timecards",tc); this.emit(); }
+};
+
+/* ============================================================
+   画面状態
+   ============================================================ */
+const state = {
+  role:"staff", tab:"tc", atab:"cal", month:THIS_YM, wishMonth:addMonth(THIS_YM,1), tcMonth:THIS_YM, tcStaff:null,
+  proxyId:null, selDay:null, sheetDay:null, draftWish:null, draftDirty:false, editStaff:null, lineText:null, busy:false
+};
+const $ = s => document.querySelector(s);
+const app = $("#app");
+const esc = s => String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+let toastT; function toast(msg){ const t=$("#toast"); t.textContent=msg; t.classList.add("on"); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove("on"),2400); }
+function activeStaff(){ return Store.staff.filter(s=>s.active!==false).sort((a,b)=>(a.order??99)-(b.order??99)||String(a.name).localeCompare(b.name,"ja")); }
+const shortName = s => s.short || String(s.name||"").replace(/\s/g,"").slice(0,2);
+function me(){ if(state.proxyId && Store.isAdmin) return Store.staff.find(s=>s.id===state.proxyId)||null; return Store.me; }
+function canEditWish(ym){ return (Store.shiftOf(ym).status||"collecting")==="collecting"; }
+function statusBadge(st){ return {collecting:'<span class="badge col">希望受付中</span>',editing:'<span class="badge edit">作成中（締切済）</span>',published:'<span class="badge pub">公開済み</span>'}[st||"collecting"]; }
+function monthLabel(ym){ const {y,m}=parseYM(ym); return `${y}年${m}月`; }
+
+/* ============================================================
+   描画
+   ============================================================ */
+function render(){
+  if(Store.error) { app.innerHTML=`<div class="loading"><b>開けませんでした</b>${esc(Store.error)}<div style="margin-top:14px"><button class="btn ghost" onclick="location.reload()">再読み込み</button></div></div>`; return; }
+  if(!Store.ready){ app.innerHTML=`<div class="loading"><b>読み込み中…</b>LINEの情報を確認しています</div>`; return; }
+  const S=Store.settings, isAdmin=state.role==="admin";
+  Store.subscribeMonth(state.month); if(!isAdmin){ Store.subscribeMonth(state.wishMonth); Store.subscribeMonth(state.tcMonth); }
+  const m=me();
+  app.innerHTML = `
+  <header class="hdr">
+    <div class="brand"><span class="eyebrow">${esc(S.eyebrow||"SHIFT")}</span><h1>${esc(S.name)} シフト表</h1><span class="sub">${isAdmin?"経営者用 シフト管理":"スタッフ用"}</span></div>
+    <div class="who">${isAdmin?`管理者`:(m?`<b>${esc(m.name)} さん</b>${state.proxyId?"（代理入力中）":""}`:esc(Store.profile?.name||""))}<br><a href="#" data-act="refresh" style="color:var(--muted)">最新に更新</a></div>
+  </header>
+  <main class="main">${isAdmin?vAdmin():vStaff()}</main>
+  <footer class="foot">
+    ${Store.isAdmin?`<span><a href="#" data-act="toggleRole">${isAdmin?"スタッフ画面へ":"経営者用（管理画面）"}</a>${state.proxyId?`　|　<a href="#" data-act="exitProxy">自分の画面に戻る</a>`:""}</span>`:`<span><a href="#" data-act="toggleRole">経営者用</a></span>`}
+  </footer>
+  ${state.sheetDay?vDaySheet():""}
+  ${Store.pendingSaves?'<div class="savebar">保存中…</div>':""}`;
+}
+function vMonthCal(ym, opts){
+  const {y,m}=parseYM(ym), n=daysIn(y,m), first=dow(y,m,1), DC=dayCounts(ym), cells=[];
+  for(let i=0;i<first;i++) cells.push('<div class="d empty"></div>');
+  for(let d=1;d<=n;d++){
+    const w=dow(y,m,d), hol=isHol(y,m,d), key=`${ym}-${pad(d)}`, c=DC[d], isToday=key===TODAY, past=key<TODAY;
+    const names=c.on.map(r=>`<span class="nm ${opts.meId===r.s.id?"me":""} ${r.info.kind==="custom"?"cus":""}${tagCls(r.info.tags)}" title="${esc(r.s.name)} ${dropZero(r.info.start)}〜${dropZero(r.info.end)} ${esc(tagLabel(r.info.tags))}"><span class="s">${esc(shortName(r.s))}</span><span class="f">${esc(r.s.name)}</span></span>`);
+    const MAX=opts.max||6; let list=names.slice(0,MAX).join(""); if(names.length>MAX) list+=`<span class="more">他${names.length-MAX}人</span>`;
+    const cntCls= c.closed?"":c.total===0?"zero":c.short?"short":c.over?"over":"ok";
+    const cnt = c.closed?'<span class="cnt">定休</span>': opts.admin?`<span class="cnt ${cntCls}">${c.total}<small>/${c.req}</small></span>`:`<span class="cnt">${c.total}人</span>`;
+    cells.push(`<button class="d ${isToday?"today":""} ${past?"past":""} ${w===6?"sat":""} ${w===0?"sun":""} ${hol?"hol":""} ${c.closed?"closed":""} ${state.selDay===d?"sel":""}" data-act="${opts.act||"selDay"}" data-d="${d}" aria-label="${m}月${d}日 ${c.closed?"定休":c.total+"人"}"><span class="top"><span class="n">${d}</span>${cnt}</span><span class="names">${c.closed?"":list}</span></button>`);
+  }
+  while(cells.length%7) cells.push('<div class="d empty"></div>');
+  return `<div class="cal mc">${WD.map((w,i)=>`<div class="dh ${i===6?"sat":""} ${i===0?"sun":""}">${w}</div>`).join("")}${cells.join("")}</div>`;
+}
+function vMonthNav(act,ym,sub){ return `<div class="mnav"><button data-act="${act}" data-n="-1" aria-label="前の月">‹</button><div class="m">${monthLabel(ym)}${sub?`<small>${sub}</small>`:(ym===THIS_YM?"<small>今月</small>":"")}</div><button data-act="${act}" data-n="1" aria-label="次の月">›</button></div>`; }
+
+/* ---------- スタッフ画面 ---------- */
+function vStaff(){
+  const m=me();
+  if(!m) return vRegister();
+  const tabs=[["tc","タイムカード"],["shift","シフト表"],["wish","希望を出す"]].filter(([k])=>!(state.proxyId&&k==="tc"));
+  if(state.proxyId&&state.tab==="tc") state.tab="shift";
+  return `<nav class="tabs">${tabs.map(([k,l])=>`<button data-act="tab" data-v="${k}" class="${state.tab===k?"on":""}">${l}</button>`).join("")}</nav>
+  ${({tc:vTimecard,shift:vMyShift,wish:vWish})[state.tab](m)}`;
+}
+function vRegister(){
+  return `<section class="card"><h2>はじめに、お名前を登録してください</h2>
+  <p class="note">LINEのアカウントと結び付けて保存します。次からは自分のシフトがそのまま表示されます。</p>
+  <form class="f" id="regf" style="margin-top:10px"><label>お名前（本名・フルネーム）<input type="text" name="name" id="regName" placeholder="例：田中 美咲" required maxlength="20" value="${esc(Store.profile?.name||"")}"></label><div class="err" id="regerr"></div><button class="btn block" ${state.busy?"disabled":""}>登録する</button></form>
+  </section>`;
+}
+function vMyShift(m){
+  const ym=state.month, {y,m:mo}=parseYM(ym), sh=Store.shiftOf(ym), S=Store.settings, pub=sh.status==="published", n=daysIn(y,mo);
+  let days=0,hours=0; if(pub) for(let d=1;d<=n;d++){ const info=cellInfo(sh.cells[`${d}_${m.id}`],S); if(info&&info.kind!=="off"){ days++; hours+=info.hours; } }
+  return `<section class="card">
+    ${vMonthNav("pm",ym)}
+    <div class="row space" style="margin:8px 0 10px"><span>${statusBadge(sh.status)}</span>${pub&&sh.publishedAt?`<span class="note">${esc(sh.publishedAt.slice(0,10))} 公開</span>`:""}</div>
+    ${pub?`${vMonthCal(ym,{meId:m.id})}
+    <div class="legend"><span><i style="background:var(--chip);box-shadow:inset 0 0 0 1.5px var(--accent)"></i>あなた（太枠）</span><span><i style="background:var(--douhan)"></i>同伴出勤</span><span><i style="background:var(--early)"></i>早上がり</span><span><i style="background:var(--today);box-shadow:inset 0 0 0 2px var(--accent)"></i>今日</span><span>点線＝時間が標準と違う</span></div>
+    <div class="sum"><div><b>${days}</b><span>あなたの出勤日数</span></div><div><b>${fmtH(hours)}</b><span>予定時間（h）</span></div><div><b>${n-days}</b><span>休み</span></div></div>`
+    :`<div class="empty"><b>${monthLabel(ym)}のシフトはまだ公開されていません</b>${sh.status==="collecting"?`希望は「希望を出す」から ${S.deadlineDay}日まで に送ってください。`:"経営者が作成中です。公開されるとLINEでお知らせします。"}</div>`}
+  </section>
+  ${pub&&state.selDay?vDayPeople(ym,state.selDay):(pub?`<p class="note">日付をタップすると、その日の出勤メンバーと時間が見られます。</p>`:"")}`;
+}
+function vDayPeople(ym,d){
+  const {y,m}=parseYM(ym), c=dayCounts(ym)[d], w=dow(y,m,d), hol=isHol(y,m,d);
+  return `<section class="card"><h2>${m}月${d}日（${WD[w]}${hol?"・祝":""}）の出勤<small>${c.closed?"定休日":c.total+"名"}</small></h2>
+  <div class="people">${c.on.length?c.on.map(r=>`<div class="pr"><span class="pill ${r.info.tags?.douhan?"dh":r.info.tags?.early?"ea":"on"}">${esc(tagLabel(r.info.tags)||"出勤")}</span><span class="nm">${esc(r.s.name)}</span><span class="tm">${dropZero(r.info.start)}〜${dropZero(r.info.end)}</span></div>`).join(""):(c.closed?"":'<div class="note">出勤者なし</div>')}
+  ${c.off.map(r=>`<div class="pr off"><span class="pill">休</span><span class="nm">${esc(r.s.name)}</span><span class="tm"></span></div>`).join("")}</div></section>`;
+}
+function vWish(m){
+  const ym=state.wishMonth, {y,m:mo}=parseYM(ym), S=Store.settings, editable=canEditWish(ym)||Store.isAdmin, saved=Store.wishesOf(ym)[m.id];
+  if(!state.draftWish||state.draftWish.month!==ym||state.draftWish.staffId!==m.id){ state.draftWish={month:ym,staffId:m.id,days:{...(saved?.days||{})},memo:saved?.memo||""}; state.draftDirty=false; }
+  const W=state.draftWish, n=daysIn(y,mo), first=dow(y,mo,1), cells=[];
+  for(let i=0;i<first;i++) cells.push('<div class="d empty"></div>');
+  let xs=0;
+  for(let d=1;d<=n;d++){
+    const w=dow(y,mo,d), hol=isHol(y,mo,d), v=W.days[d]; if(v?.t==="x") xs++;
+    const mark = v?.t==="x"?'<span class="w x">休</span>': v?.t==="p"?`<span class="w p">${esc(dropZero(v.from))}〜${esc(dropZero(v.to))}</span>`:'<span class="w o">○</span>';
+    cells.push(`<button class="d ${w===6?"sat":""} ${w===0?"sun":""} ${hol?"hol":""} ${isClosedDay(y,mo,d)?"closed":""} ${state.selDay===d?"sel":""}" data-act="${editable?"wishDay":"selDay"}" data-d="${d}"><span class="n">${d}</span>${isClosedDay(y,mo,d)?'<span class="note">定休</span>':mark}</button>`);
+  }
+  const sel=state.selDay, sv=sel?W.days[sel]:null, deadline=`${parseYM(addMonth(ym,-1)).m}月${S.deadlineDay}日`;
+  return `<section class="card">
+    ${vMonthNav("wm",ym,"の希望")}
+    <div class="row space" style="margin:8px 0 10px"><span>${statusBadge(Store.shiftOf(ym).status)}</span><span class="note">${editable?`締切：${deadline}`:"受付は終了しました"}</span></div>
+    ${editable?`<p class="note" style="margin:0 0 8px">日付をタップするごとに ○（出勤できる）→ <b style="color:var(--wish-x)">休</b>（希望休）→ <b style="color:var(--wish-p)">時間指定</b> と切り替わります。</p>`:""}
+    <div class="cal">${WD.map((w,i)=>`<div class="dh ${i===6?"sat":""} ${i===0?"sun":""}">${w}</div>`).join("")}${cells.join("")}</div>
+    ${editable&&sel&&sv?.t==="p"?`<div class="timebox"><input type="time" id="wFrom" data-wt="from" data-d="${sel}" value="${esc(sv.from||"10:00")}" aria-label="開始"><span>〜</span><input type="time" id="wTo" data-wt="to" data-d="${sel}" value="${esc(sv.to||"15:00")}" aria-label="終了"></div><p class="note">${mo}月${sel}日は この時間なら出勤できる、という指定です。</p>`:""}
+    <div class="legend"><span>希望休 <b style="color:var(--wish-x)">${xs}</b> 日</span>${saved?`<span>最終送信：${esc((saved.updatedAt||"").slice(0,16).replace("T"," "))}</span>`:'<span>まだ送信していません</span>'}</div>
+    ${editable?`<label class="f" style="margin-top:10px;display:flex;flex-direction:column;gap:5px;font-size:13px;font-weight:700">連絡事項<span class="h">（例：15日は学校行事のため午前のみ可）</span><textarea id="wMemo" maxlength="300" placeholder="任意">${esc(W.memo)}</textarea></label>
+    <div class="wishctl"><button class="btn block" data-act="sendWish" ${state.busy?"disabled":""}>${saved?"希望を更新して送信":"希望を送信"}</button></div>${state.draftDirty?'<p class="note" style="margin:6px 0 0;color:var(--warn)">未送信の変更があります</p>':""}`
+    :`<div class="hint" style="margin-top:10px">${monthLabel(ym)}の希望受付は締め切られました。変更がある場合は直接ご連絡ください。</div>`}
+  </section>`;
+}
+function findOpenRec(sid){
+  for(const ym of [THIS_YM, addMonth(THIS_YM,-1)]){ const doc=Store.tcOf(ym)[sid]; if(!doc) continue; for(const [d,r] of Object.entries(doc.days||{})){ if(r.in&&!r.out&&r.in.slice(0,10)!==TODAY) return {ym,d:+d,rec:r}; } }
+  return null;
+}
+function vTimecard(m){
+  const now=new Date(), d=now.getDate(), S=Store.settings, doc=Store.tcOf(THIS_YM)[m.id]||{days:{}}, rec=(doc.days||{})[d], c=calcRec(rec);
+  const sh=Store.shiftOf(THIS_YM), sched= sh.status==="published" ? cellInfo(sh.cells[`${d}_${m.id}`],S) : null;
+  const open=findOpenRec(m.id);
+  let mTot=0,mCnt=0; Object.values(doc.days||{}).forEach(r=>{ const cc=calcRec(r); if(cc&&!cc.open){ mTot+=cc.mins; mCnt++; } });
+  let body;
+  if(!rec) body=`<div class="st">${sched?(sched.kind==="off"?"本日は休みの予定です":`本日の予定：<b>${dropZero(sched.start)}〜${dropZero(sched.end)}</b>${tagLabel(sched.tags)?`（${esc(tagLabel(sched.tags))}）`:""}`):"本日のシフト予定はありません"}</div><button class="btn big" data-act="punchIn" ${state.busy?"disabled":""}>出　勤</button>`;
+  else if(c.open) body=`<div class="st"><b>出勤中</b><br>${dropZero(rec.in.slice(11,16))} に出勤（${dropZero(c.inR)} として計算）</div><div class="brkrow">休憩 <input type="number" id="tcBrk" min="0" max="300" step="5" value="${esc(rec.brk||0)}" inputmode="numeric"> 分</div><button class="btn big out" data-act="punchOut" ${state.busy?"disabled":""}>退　勤</button>`;
+  else body=`<div class="st"><b>本日はお疲れさまでした</b><br>${dropZero(rec.in.slice(11,16))} 出勤 → ${dropZero(rec.out.slice(11,16))} 退勤${rec.brk?`（休憩 ${rec.brk}分）`:""}<br>計算：${dropZero(c.inR)}〜${dropZero(c.outR)}　実働 <b>${fmtH(c.mins/60)}</b> 時間</div><p class="note">時刻の修正が必要なときは経営者に伝えてください。</p>`;
+  return `<section class="card">
+    <div class="punch"><div class="date">${now.getMonth()+1}月${d}日（${WD[now.getDay()]}${isHol(now.getFullYear(),now.getMonth()+1,d)?"・祝":""}）</div><div class="clock" id="clock">${pad(now.getHours())}:${pad(now.getMinutes())}</div>${body}
+    <div class="sum" style="width:100%;max-width:340px;grid-template-columns:1fr 1fr;margin-top:4px"><div><b>${fmtH(mTot/60)}<small style="font-size:12px;font-weight:400">h</small></b><span>今月の累計労働時間</span></div><div><b>${mCnt}<small style="font-size:12px;font-weight:400">日</small></b><span>今月の出勤日数</span></div></div></div>
+    ${open?`<div class="warnbox" style="margin-top:10px"><b>${parseYM(open.ym).m}月${open.d}日の退勤が押されていません。</b><div class="row" style="margin-top:6px"><input type="time" id="openOut" value="${esc(roundPunch(open.rec.in.slice(11,16),"in"))}" style="border:1px solid var(--line);border-radius:8px;padding:6px 8px;background:var(--panel);min-height:38px;color:var(--ink)"><button class="btn sm" data-act="fixOpen" data-ym="${open.ym}" data-d="${open.d}">この時刻で退勤にする</button></div><p class="note" style="margin:6px 0 0">手入力した記録には「手入力」と表示され、経営者が確認します。</p></div>`:""}
+  </section>
+  ${vTcHistory(m)}`;
+}
+function vTcHistory(m){
+  const ym=state.tcMonth, {y,m:mo}=parseYM(ym), doc=Store.tcOf(ym)[m.id]||{days:{}}, days=Object.keys(doc.days||{}).map(Number).sort((a,b)=>a-b);
+  let total=0, cnt=0; const rows=days.map(d=>{ const r=doc.days[d], c=calcRec(r); if(!c) return ""; if(!c.open){ total+=c.mins; cnt++; } const w=dow(y,mo,d);
+    return `<div class="r ${c.open?"open":""} ${r.manual?"manual":""}"><span class="dd ${w===6?"sat":""} ${w===0?"sun":""}">${d}日(${WD[w]})</span><span>${c.open?`${dropZero(c.inR)}〜 退勤未`:`${dropZero(c.inR)}〜${dropZero(c.outR)}${r.brk?` 休${r.brk}`:""}`}<br><span class="raw">打刻 ${dropZero(r.in.slice(11,16))}${r.out?`〜${dropZero(r.out.slice(11,16))}`:""}</span></span><span class="hh">${c.open?"—":fmtH(c.mins/60)+"h"}</span></div>`; }).join("");
+  return `<section class="card">
+    ${vMonthNav("tcm",ym,"の勤務")}
+    <div class="sum" style="margin:10px 0"><div><b>${cnt}</b><span>出勤日数</span></div><div><b>${fmtH(total/60)}</b><span>実働合計（h）</span></div><div><b>${+Store.settings.tcUnit||30}</b><span>分刻みで計算</span></div></div>
+    <div class="tcl">${rows||'<div class="note">この月の打刻はまだありません。</div>'}</div>
+    <p class="note" style="margin-top:8px">計算方法：${esc(TC_MODES[Store.settings.tcMode||"nearest"])}。</p>
+  </section>`;
+}
+
+/* ---------- 管理画面 ---------- */
+function vAdmin(){
+  if(!Store.isAdmin) return `<section class="card"><h2>経営者用ログイン</h2><p class="note">暗証番号を入れると、このLINEアカウントが管理者として登録されます（次回から入力不要）。</p><form class="f" id="pinf" style="margin-top:8px"><label>暗証番号<input type="password" name="pin" id="pinInput" inputmode="numeric" autocomplete="off"></label><div class="err" id="perr"></div><button class="btn" ${state.busy?"disabled":""}>ログイン</button></form></section>`;
+  const tabs=[["cal","シフト作成"],["tc","勤怠"],["wishes","希望一覧"],["staff","スタッフ"],["settings","設定"]];
+  return `<nav class="tabs">${tabs.map(([k,l])=>`<button data-act="atab" data-v="${k}" class="${state.atab===k?"on":""}">${l}</button>`).join("")}</nav>
+  ${({cal:vAdminCal,tc:vTcAdmin,wishes:vWishList,staff:vStaffAdmin,settings:vSettings})[state.atab]()}`;
+}
+function vAdminCal(){
+  const ym=state.month, {y,m}=parseYM(ym), sh=Store.shiftOf(ym), list=activeStaff(), DC=dayCounts(ym), n=daysIn(y,m);
+  if(!list.length) return `<section class="card">${vMonthNav("pm",ym)}<div class="empty"><b>スタッフが登録されていません</b>「スタッフ」タブから追加するか、各スタッフにこのページを開いて名前を登録してもらってください。</div></section>`;
+  let shortDays=0,sum=0,openDays=0,undec=0; for(let d=1;d<=n;d++){ const c=DC[d]; if(c.closed) continue; openDays++; sum+=c.total; if(c.short) shortDays++; undec+=c.undecided.length; }
+  const pub=sh.status==="published";
+  return `<section class="card">
+    <div class="row space">${vMonthNav("pm",ym)}<span>${statusBadge(sh.status)}</span></div>
+    <p class="note" style="margin:8px 0 10px">日をタップすると、その日の出勤・休をひとりずつ切り替えられます。右上の数字は「出勤人数／必要人数」。足りない日は赤、足りている日は緑です。</p>
+    ${vMonthCal(ym,{admin:true,act:"openDay",max:8})}
+    <div class="legend"><span><i style="background:var(--today);box-shadow:inset 0 0 0 2px var(--accent)"></i>今日</span><span><i style="background:var(--douhan)"></i>同伴出勤</span><span><i style="background:var(--early)"></i>早上がり</span><span>点線＝標準と違う時間</span><span><b style="color:var(--ng)">3/4</b> 人数不足</span><span><b style="color:var(--ok)">4/4</b> 充足</span></div>
+    <div class="sum"><div><b>${shortDays}</b><span>人数不足の日</span></div><div><b>${openDays?fmtH(sum/openDays):"0"}</b><span>1日平均人数</span></div><div><b>${undec}</b><span>未定のマス</span></div></div>
+    <div class="row" style="margin-top:12px">
+      ${sh.status==="collecting"?`<button class="btn ghost sm" data-act="status" data-v="editing">希望受付を締め切る</button>`:""}
+      ${sh.status==="editing"?`<button class="btn ghost sm" data-act="status" data-v="collecting">受付を再開</button>`:""}
+      <button class="btn ghost sm" data-act="applyWish">希望休を反映</button>
+      <button class="btn ghost sm" data-act="fillDefault">未定を全員「出勤」にする</button>
+      <button class="btn ghost sm" data-act="clearMonth">この月をクリア</button>
+    </div>
+    <div class="row" style="margin-top:10px">
+      ${pub?`<button class="btn danger" data-act="status" data-v="editing">公開を取り消す</button>`:`<button class="btn" data-act="status" data-v="published" ${state.busy?"disabled":""}>シフトを公開する（全員にLINE通知）</button>`}
+      <button class="btn ghost" data-act="lineText">LINEに貼る用テキスト</button>
+    </div>
+    ${state.lineText?`<pre class="txt" id="lineTxt">${esc(state.lineText)}</pre><div class="row" style="margin-top:8px"><button class="btn sm" data-act="copyLine">コピー</button><button class="btn ghost sm" data-act="closeLine">閉じる</button></div>`:""}
+  </section>`;
+}
+function vDaySheet(){
+  const d=state.sheetDay, ym=state.month, {y,m}=parseYM(ym), S=Store.settings, sh=Store.shiftOf(ym), wishes=Store.wishesOf(ym), c=dayCounts(ym)[d], w=dow(y,m,d), hol=isHol(y,m,d);
+  const rows=activeStaff().map(s=>{
+    const v=sh.cells[`${d}_${s.id}`]||"", info=cellInfo(v,S), wv=(wishes[s.id]?.days||{})[d], wdoc=wishes[s.id];
+    const wm = wv?.t==="x"?'<span class="wm x">希望休</span>': wv?.t==="p"?`<span class="wm p">希望 ${esc(dropZero(wv.from))}〜${esc(dropZero(wv.to))}</span>`: wdoc?'<span class="wm o">○</span>':'<span class="wm o">未提出</span>';
+    const isOn=info&&info.kind!=="off", isOff=info&&info.kind==="off", cus=info&&info.kind==="custom";
+    return `<div class="srow"><div class="l1"><span class="who">${esc(s.name)}${wm}</span>
+      <span class="seg"><button data-act="dset" data-s="${esc(s.id)}" data-v="ON" class="${isOn?"on ok":""}">出勤</button><button data-act="dset" data-s="${esc(s.id)}" data-v="OFF" class="${isOff?"on ng":""}">休</button><button data-act="dset" data-s="${esc(s.id)}" data-v="" class="${!info?"on":""}">未定</button></span></div>
+      ${isOn?`<div class="times"><input type="time" data-tin="${esc(s.id)}" id="tin_${esc(s.id)}" value="${esc(info.start)}" aria-label="開始"><span>〜</span><input type="time" data-tout="${esc(s.id)}" id="tout_${esc(s.id)}" value="${esc(info.end)}" aria-label="終了"><button class="x" data-act="dset" data-s="${esc(s.id)}" data-v="ON" title="標準時間に戻す" aria-label="標準時間に戻す" ${cus?"":"disabled"}>↺</button></div>
+      <div class="tagbtns"><button data-act="dtag" data-s="${esc(s.id)}" data-t="d" class="dh ${info.tags.douhan?"on":""}">同伴出勤</button><button data-act="dtag" data-s="${esc(s.id)}" data-t="h" class="ea ${info.tags.early?"on":""}">早上がり</button></div>`:""}
+    </div>`; }).join("");
+  return `<div class="sheet-bg" data-act="closeSheet"><div class="sheet" data-stop="1">
+    <div class="row space"><h3>${m}月${d}日（${WD[w]}${hol?"・祝":""}）</h3><div class="row" style="gap:6px"><button data-act="sheetMove" data-n="-1" class="btn ghost sm">‹ 前日</button><button data-act="sheetMove" data-n="1" class="btn ghost sm">翌日 ›</button></div></div>
+    <div class="subh">${c.closed?"定休日":`出勤 <b style="color:${c.short?"var(--ng)":"var(--ok)"}">${c.total}</b> 人 ／ 必要 ${c.req} 人`}　標準時間 ${dropZero(S.openStart)}〜${dropZero(S.openEnd)}</div>
+    <div class="row" style="margin-bottom:4px"><button class="btn ghost sm" data-act="dayAll" data-v="ON">全員出勤</button><button class="btn ghost sm" data-act="dayAll" data-v="OFF">全員休</button><button class="btn ghost sm" data-act="dayAll" data-v="">全員未定</button></div>
+    ${rows}
+    <div class="row" style="margin-top:12px;justify-content:flex-end"><button class="btn" data-act="closeSheet">閉じる</button></div>
+  </div></div>`;
+}
+function vTcAdmin(){
+  const ym=state.month, tcs=Store.tcOf(ym), list=activeStaff(), S=Store.settings;
+  const sums=list.map(s=>{ const doc=tcs[s.id]||{days:{}}; let mins=0,cnt=0,open=0,manual=0; Object.values(doc.days||{}).forEach(r=>{ const c=calcRec(r); if(!c) return; if(c.open) open++; else { mins+=c.mins; cnt++; } if(r.manual) manual++; }); return {s,mins,cnt,open,manual}; });
+  const grand=sums.reduce((a,x)=>a+x.mins,0), sel=state.tcStaff&&list.find(s=>s.id===state.tcStaff);
+  return `<section class="card">
+    <div class="row space">${vMonthNav("pm",ym)}<span class="badge col">${+S.tcUnit||30}分刻み</span></div>
+    <p class="note" style="margin:8px 0">${esc(TC_MODES[S.tcMode||"nearest"])}。丸め方は「設定」で変えられます。</p>
+    <div class="tbl"><table class="list"><thead><tr><th>スタッフ</th><th>出勤日数</th><th>実働合計</th><th>注意</th><th></th></tr></thead><tbody>
+    ${sums.map(x=>`<tr><td><b>${esc(x.s.name)}</b></td><td>${x.cnt}日</td><td><b>${fmtH(x.mins/60)}</b> h</td><td>${x.open?`<span class="badge edit">退勤未 ${x.open}</span>`:""} ${x.manual?`<span class="badge">手入力 ${x.manual}</span>`:""}</td><td><button class="btn ghost sm" data-act="tcStaff" data-id="${esc(x.s.id)}">${state.tcStaff===x.s.id?"閉じる":"明細・修正"}</button></td></tr>`).join("")||'<tr><td colspan="5" class="note">スタッフが登録されていません</td></tr>'}
+    <tr><td colspan="2"><b>合計</b></td><td><b>${fmtH(grand/60)}</b> h</td><td colspan="2"></td></tr></tbody></table></div>
+    <div class="row" style="margin-top:10px"><button class="btn ghost" data-act="tcText">給与計算用テキスト</button></div>
+    ${state.lineText?`<pre class="txt" id="lineTxt">${esc(state.lineText)}</pre><div class="row" style="margin-top:8px"><button class="btn sm" data-act="copyLine">コピー</button><button class="btn ghost sm" data-act="closeLine">閉じる</button></div>`:""}
+  </section>
+  ${sel?vTcDetail(sel,ym):""}`;
+}
+function vTcDetail(s,ym){
+  const {y,m}=parseYM(ym), doc=Store.tcOf(ym)[s.id]||{month:ym,staffId:s.id,days:{}}, days=Object.keys(doc.days||{}).map(Number).sort((a,b)=>a-b);
+  const rows=days.map(d=>{ const r=doc.days[d], c=calcRec(r)||{}; const w=dow(y,m,d);
+    return `<div class="tce"><span class="dd" style="color:${w===0?"var(--sun)":w===6?"var(--sat)":"inherit"}">${d}日</span><input type="time" id="ti${d}" value="${esc(r.in?r.in.slice(11,16):"")}" aria-label="出勤"><input type="time" id="to${d}" value="${esc(r.out?r.out.slice(11,16):"")}" aria-label="退勤"><input type="number" id="tb${d}" value="${esc(r.brk||0)}" min="0" step="5" aria-label="休憩分"><button class="x" data-act="tcDel" data-d="${d}" aria-label="削除">×</button><span></span><span class="note" style="grid-column:2/5">計算 ${c.inR?dropZero(c.inR):"—"}〜${c.outR?dropZero(c.outR):"—"}　実働 ${c.open||!c.inR?"—":fmtH(c.mins/60)+"h"}${r.manual?"　<span style='color:var(--warn)'>手入力</span>":""}${r.editedBy==="owner"?"　経営者修正":""}</span></div>`; }).join("");
+  return `<section class="card" id="tcdetail"><h2>${esc(s.name)}<small>${monthLabel(ym)}の明細</small></h2>
+    <p class="note">時刻を直して「保存」。退勤が出勤より早い時刻なら翌日扱いです。</p>
+    <div class="tce" style="color:var(--muted);font-size:11px"><span></span><span>出勤</span><span>退勤</span><span>休憩(分)</span><span></span></div>
+    <div class="f" style="gap:8px;margin-top:6px">${rows||'<div class="note">打刻がありません。下の欄から追加できます。</div>'}</div>
+    <div class="tce" style="margin-top:12px;border-top:1px solid var(--line2);padding-top:10px"><input type="number" id="tcNewDay" min="1" max="${daysIn(y,m)}" placeholder="日" aria-label="日"><input type="time" id="tcNewIn" aria-label="出勤"><input type="time" id="tcNewOut" aria-label="退勤"><input type="number" id="tcNewBrk" value="0" min="0" step="5" aria-label="休憩分"><button class="btn ghost sm" data-act="tcAdd" style="min-height:38px;padding:0 10px">追加</button></div>
+    <div class="row" style="margin-top:12px"><button class="btn" data-act="tcSave" ${state.busy?"disabled":""}>明細を保存</button><button class="btn ghost" data-act="tcStaff" data-id="${esc(s.id)}">閉じる</button></div>
+  </section>`;
+}
+function vWishList(){
+  const ym=state.month, wishes=Store.wishesOf(ym), list=activeStaff(), {y,m}=parseYM(ym), S=Store.settings;
+  const rows=list.map(s=>{ const w=wishes[s.id]; const days=w?.days||{}; const xs=Object.entries(days).filter(([,v])=>v.t==="x").map(([d])=>+d).sort((a,b)=>a-b); const ps=Object.entries(days).filter(([,v])=>v.t==="p").map(([d,v])=>`${d}日 ${dropZero(v.from)}〜${dropZero(v.to)}`);
+    return `<tr><td><b>${esc(s.name)}</b><br><button class="btn ghost sm" data-act="viewAs" data-id="${esc(s.id)}">代理入力</button></td><td>${w?`<span class="badge pub">提出済</span><div class="note">${esc((w.updatedAt||"").slice(0,16).replace("T"," "))}</div>`:'<span class="badge">未提出</span>'}</td><td>${xs.length?xs.map(d=>`${d}日(${WD[dow(y,m,d)]})`).join("、"):"—"}</td><td>${ps.length?ps.join("<br>"):"—"}</td><td>${esc(w?.memo||"")}</td></tr>`; }).join("");
+  const done=list.filter(s=>wishes[s.id]).length;
+  return `<section class="card"><div class="row space">${vMonthNav("pm",ym)}<span class="badge ${done===list.length&&list.length?"pub":"col"}">提出 ${done}／${list.length}名</span></div>
+  <p class="note" style="margin:8px 0">締切は毎月${S.deadlineDay}日（前月）。締切3日前と当日の朝9時に、未提出の人へ自動でLINEが届きます。</p>
+  <div class="tbl"><table class="list"><thead><tr><th>スタッフ</th><th>提出</th><th>希望休</th><th>時間指定</th><th>連絡事項</th></tr></thead><tbody>${rows||'<tr><td colspan="5" class="note">スタッフが登録されていません</td></tr>'}</tbody></table></div></section>`;
+}
+function vStaffAdmin(){
+  const list=[...Store.staff].sort((a,b)=>(a.order??99)-(b.order??99)), e=state.editStaff;
+  return `<section class="card"><h2>スタッフ<small>${list.length}名</small></h2>
+  <div class="people" style="margin-top:8px">${list.map(s=>`<div class="stf ${s.active===false?"inactive":""}"><div><div class="nm">${esc(s.name)} <span class="pill">${esc(shortName(s))}</span> <span class="note">${s.emp?esc(s.emp):""}</span></div><div class="mt">表示順 ${s.order??"-"}　${s.linked||s.userId?"LINE連携済み（通知が届きます）":"LINE未連携（本人がLINEから開いて登録すると連携されます）"}${s.active===false?"　／ 非表示":""}</div></div><div class="row"><button class="btn ghost sm" data-act="editStaff" data-id="${esc(s.id)}">編集</button><button class="btn ghost sm" data-act="viewAs" data-id="${esc(s.id)}">代理入力</button></div></div>`).join("")||'<div class="note">まだ登録がありません。</div>'}</div>
+  <h3 style="margin:16px 0 8px;font-size:14px">${e?.id?"スタッフを編集":"スタッフを追加（経営者側で登録）"}</h3>
+  <form class="f" id="stf"><input type="hidden" name="id" value="${esc(e?.id||"")}">
+    <div class="kv"><label>名前<input type="text" name="name" id="sName" required maxlength="20" value="${esc(e?.name||"")}"></label><label>カレンダー表示名<span class="h">（2〜3文字）</span><input type="text" name="short" id="sShort" maxlength="4" value="${esc(e?.short||"")}" placeholder="例：田中"></label></div>
+    <div class="kv"><label>区分<select name="emp" id="sEmp">${["","社員","パート","アルバイト","業務委託"].map(v=>`<option ${e?.emp===v?"selected":""}>${v}</option>`).join("")}</select></label><label>表示順<input type="number" name="order" id="sOrder" min="1" max="99" value="${esc(e?.order??(list.length+1))}"></label></div>
+    <label class="inline"><input type="checkbox" name="active" id="sActive" ${e?.active===false?"":"checked"}>シフト表に表示する</label>
+    <label>メモ<span class="h">（経営者のみ閲覧）</span><input type="text" name="note" id="sNote" maxlength="100" value="${esc(e?.note||"")}"></label>
+    <div class="row"><button class="btn" ${state.busy?"disabled":""}>${e?.id?"保存":"追加"}</button>${e?.id?`<button type="button" class="btn ghost" data-act="cancelEdit">キャンセル</button><button type="button" class="btn danger sm" data-act="delStaff" data-id="${esc(e.id)}">削除</button>`:""}</div>
+  </form>
+  <div class="hint" style="margin-top:14px">スタッフ本人がLINEからこのページを開いて名前を登録すると、ここに自動で追加されLINE通知も届きます。先に経営者が追加した名前と本人の登録が重なった場合は、片方を「表示しない」にしてください。</div>
+  </section>`;
+}
+function vSettings(){
+  const S=Store.settings;
+  return `<section class="card"><h2>基本設定</h2>
+  <form class="f" id="setf" style="margin-top:8px">
+    <div class="kv"><label>店名<input type="text" name="name" id="cName" value="${esc(S.name)}" maxlength="20" required></label><label>英字表記<span class="h">（見出しの小文字）</span><input type="text" name="eyebrow" id="cEyebrow" value="${esc(S.eyebrow||"")}" maxlength="24"></label></div>
+    <div class="kv"><label>標準の出勤時間（開始）<span class="h">「出勤」にした人の時間</span><input type="time" name="openStart" id="cOpenStart" value="${esc(S.openStart)}" required></label><label>標準の出勤時間（終了）<input type="time" name="openEnd" id="cOpenEnd" value="${esc(S.openEnd)}" required></label></div>
+    <div class="kv"><label>希望の締切日<span class="h">（前月の何日まで）</span><input type="number" name="deadlineDay" id="cDeadline" min="1" max="28" value="${esc(S.deadlineDay)}"></label><label>管理画面の暗証番号<span class="h">（空欄なら変更しない）</span><input type="text" name="pin" id="cPin" inputmode="numeric" value="" maxlength="8" placeholder="新しい暗証番号"></label></div>
+    <div><div style="font-size:13px;font-weight:700;margin-bottom:6px">曜日ごとの必要人数</div><div class="reqrow">${WD.map((w,i)=>`<label>${w}<input type="number" name="req${i}" id="req${i}" min="0" max="20" value="${esc((S.required||[])[i]??0)}"></label>`).join("")}</div></div>
+    <div class="kv"><label>タイムカードの刻み<select name="tcUnit" id="cTcUnit">${[15,30,60].map(u=>`<option value="${u}" ${(+S.tcUnit||30)===u?"selected":""}>${u}分</option>`).join("")}</select></label><label>丸め方<select name="tcMode" id="cTcMode">${Object.entries(TC_MODES).map(([k,v])=>`<option value="${k}" ${(S.tcMode||"nearest")===k?"selected":""}>${v}</option>`).join("")}</select></label></div>
+    <div><div style="font-size:13px;font-weight:700;margin-bottom:6px">定休日</div><div class="row">${WD.map((w,i)=>`<label class="inline" style="font-weight:400;flex-direction:row;align-items:center;gap:4px"><input type="checkbox" name="closed${i}" id="closed${i}" ${(S.closed||[]).includes(i)?"checked":""}>${w}</label>`).join("")}<label class="inline" style="font-weight:700;flex-direction:row;align-items:center;gap:4px;margin-left:6px"><input type="checkbox" name="closedHol" id="closedHol" ${S.closedHol!==false?"checked":""}>祝日も定休日</label></div><p class="note" style="margin:4px 0 0">祝日は振替休日まで自動で判定します。</p></div>
+    <label class="inline"><input type="checkbox" name="notifyWish" id="cNotifyWish" ${S.notifyWish!==false?"checked":""}>スタッフが希望を出したら管理者にLINEで知らせる</label>
+    <button class="btn" ${state.busy?"disabled":""}>設定を保存</button>
+  </form></section>`;
+}
+
+/* ============================================================
+   操作
+   ============================================================ */
+function go(){ render(); }
+function setMonth(n){ state.month=addMonth(state.month,n); state.selDay=null; state.sheetDay=null; state.lineText=null; go(); }
+function writeCells(mut){ const sh={...Store.shiftOf(state.month)}; sh.cells={...sh.cells}; mut(sh.cells); Store.setShiftLocal(sh); }
+async function busy(fn){ if(state.busy) return; state.busy=true; go(); try{ await fn(); }catch(e){ toast(errMsg(e)); } state.busy=false; go(); }
+function errMsg(e){ const m=String(e&&e.message||e); return ({closed:"受付は締め切られています",forbidden:"この操作は管理者のみです",not_registered:"先に名前を登録してください",already_in:"すでに出勤しています",not_in:"出勤が押されていません",bad_pin:"暗証番号が違います"})[m]||("エラー："+m); }
+
+app.addEventListener("click", async e=>{
+  const t=e.target.closest("[data-act]"); if(!t) return;
+  if(t.dataset.act==="closeSheet" && t.closest("[data-stop]") && t.tagName!=="BUTTON") return;
+  const act=t.dataset.act, S=Store.settings;
+  if(t.tagName==="A") e.preventDefault();
+  switch(act){
+    case "refresh": toast("更新しています…"); await Store.refresh(); toast("最新の状態です"); break;
+    case "toggleRole": state.role = state.role==="admin"?"staff":"admin"; state.selDay=null; state.sheetDay=null; go(); break;
+    case "exitProxy": state.proxyId=null; state.draftWish=null; state.tab="tc"; go(); break;
+    case "tab": state.tab=t.dataset.v; state.selDay=null; go(); break;
+    case "atab": state.atab=t.dataset.v; state.sheetDay=null; state.lineText=null; go(); break;
+    case "pm": setMonth(+t.dataset.n); break;
+    case "wm": state.wishMonth=addMonth(state.wishMonth,+t.dataset.n); state.selDay=null; state.draftWish=null; go(); break;
+    case "tcm": state.tcMonth=addMonth(state.tcMonth,+t.dataset.n); go(); break;
+    case "selDay": state.selDay = state.selDay===+t.dataset.d?null:+t.dataset.d; go(); break;
+    case "openDay": state.sheetDay=+t.dataset.d; go(); break;
+    case "closeSheet": state.sheetDay=null; go(); break;
+    case "sheetMove": { const {y,m}=parseYM(state.month); const nd=state.sheetDay+(+t.dataset.n); if(nd<1||nd>daysIn(y,m)) break; state.sheetDay=nd; go(); break; }
+    case "dset": { const d=state.sheetDay, sid=t.dataset.s, v=t.dataset.v; writeCells(c=>{ const k=`${d}_${sid}`; if(!v) delete c[k]; else if(v==="OFF") c[k]="OFF"; else c[k]=withTags(v,tagsOf(c[k])); }); break; }
+    case "dtag": { const d=state.sheetDay, sid=t.dataset.s, tg=t.dataset.t; writeCells(c=>{ const k=`${d}_${sid}`, cur=c[k]; if(!cur||baseOf(cur)==="OFF") return; const tags=tagsOf(cur); if(tg==="d") tags.douhan=!tags.douhan; else tags.early=!tags.early; c[k]=withTags(baseOf(cur),tags); }); break; }
+    case "dayAll": { const d=state.sheetDay, v=t.dataset.v; writeCells(c=>{ activeStaff().forEach(s=>{ if(v) c[`${d}_${s.id}`]=v; else delete c[`${d}_${s.id}`]; }); }); break; }
+    case "viewAs": state.proxyId=t.dataset.id; state.role="staff"; state.tab="wish"; state.draftWish=null; go(); toast(`${Store.staff.find(s=>s.id===t.dataset.id)?.name||""}さんとして入力中（代理）`); break;
+    case "wishDay": { const d=+t.dataset.d, W=state.draftWish, cur=W.days[d]?.t; if(!cur) W.days[d]={t:"x"}; else if(cur==="x") W.days[d]={t:"p",from:"10:00",to:"15:00"}; else delete W.days[d]; state.selDay=d; state.draftDirty=true; go(); break; }
+    case "sendWish": await busy(async()=>{ const W=state.draftWish; W.memo=$("#wMemo")?.value||""; await Store.saveWish({month:W.month,staffId:W.staffId,days:W.days,memo:W.memo}); state.draftDirty=false; toast("希望を送信しました"); }); break;
+    case "status": await busy(async()=>{ const sh={...Store.shiftOf(state.month)}; sh.cells={...sh.cells}; sh.status=t.dataset.v; await Store.saveShiftNow(sh); toast({published:"シフトを公開し、スタッフにLINEで通知しました",editing:"受付を締め切りました",collecting:"希望受付を再開しました"}[sh.status]); }); break;
+    case "applyWish": { const wishes=Store.wishesOf(state.month); let n=0; writeCells(c=>{ activeStaff().forEach(s=>{ Object.entries(wishes[s.id]?.days||{}).forEach(([d,v])=>{ if(v.t==="x"&&!c[`${d}_${s.id}`]){ c[`${d}_${s.id}`]="OFF"; n++; } }); }); }); toast(`希望休 ${n}件 を「休」にしました`); break; }
+    case "fillDefault": { const {y,m}=parseYM(state.month); let n=0; writeCells(c=>{ activeStaff().forEach(s=>{ for(let d=1;d<=daysIn(y,m);d++){ const k=`${d}_${s.id}`; if(!c[k]){ c[k]= isClosedDay(y,m,d)?"OFF":"ON"; n++; } } }); }); toast(`${n}マスを埋めました（定休日・祝日は休）`); break; }
+    case "clearMonth": { if(t.dataset.sure!=="1"){ t.dataset.sure="1"; t.textContent="本当にクリアする（もう一度タップ）"; t.classList.add("danger"); break; }
+      await busy(async()=>{ const sh={...Store.shiftOf(state.month)}; sh.cells={}; if(sh.status==="published") sh.status="editing"; await Store.saveShiftNow(sh); toast("クリアしました"); }); break; }
+    case "lineText": state.lineText=buildLineText(); go(); break;
+    case "tcText": state.lineText=buildTcText(); go(); break;
+    case "closeLine": state.lineText=null; go(); break;
+    case "copyLine": { const txt=state.lineText||""; try{ await navigator.clipboard.writeText(txt); toast("コピーしました。LINEに貼り付けてください"); }catch(err){ const el=$("#lineTxt"); if(el){ const r=document.createRange(); r.selectNodeContents(el); const sel=getSelection(); sel.removeAllRanges(); sel.addRange(r); } toast("長押しでコピーしてください"); } break; }
+    case "editStaff": state.editStaff=Store.staff.find(s=>s.id===t.dataset.id)||null; go(); $("#sName")?.focus(); break;
+    case "cancelEdit": state.editStaff=null; go(); break;
+    case "delStaff": { if(t.dataset.sure!=="1"){ t.dataset.sure="1"; t.textContent="本当に削除（もう一度タップ）"; break; } await busy(async()=>{ await Store.deleteStaff(t.dataset.id); state.editStaff=null; toast("削除しました"); }); break; }
+    case "punchIn": await busy(async()=>{ await Store.punch({type:"in"}); toast("出勤を記録しました"); }); break;
+    case "punchOut": await busy(async()=>{ await Store.punch({type:"out",brk:Math.max(0,+($("#tcBrk")?.value||0))}); toast("退勤を記録しました。お疲れさまでした"); }); break;
+    case "fixOpen": await busy(async()=>{ const hm=$("#openOut")?.value; if(!hm) throw new Error("退勤時刻を入れてください"); await Store.punch({type:"fixOut",month:t.dataset.ym,day:+t.dataset.d,hm}); toast("退勤を登録しました（手入力）"); }); break;
+    case "tcStaff": state.tcStaff = state.tcStaff===t.dataset.id?null:t.dataset.id; state.lineText=null; go(); if(state.tcStaff) $("#tcdetail")?.scrollIntoView({behavior:"smooth",block:"start"}); break;
+    case "tcSave": case "tcAdd": case "tcDel": await busy(async()=>{
+      const sid=state.tcStaff, ym=state.month; if(!sid) return;
+      const doc={month:ym,staffId:sid,days:{...((Store.tcOf(ym)[sid]||{}).days||{})}};
+      Object.keys(doc.days).forEach(d=>{ const i=$(`#ti${d}`)?.value, o=$(`#to${d}`)?.value, b=$(`#tb${d}`)?.value; if(i===undefined) return; const r={...doc.days[d]}; const date=`${ym}-${pad(+d)}`; const prevIn=r.in, prevOut=r.out;
+        if(i) r.in=date+"T"+i; if(o) r.out=(r.out?r.out.slice(0,10):date)+"T"+o; else delete r.out; r.brk=Math.max(0,+b||0); if(r.in!==prevIn||r.out!==prevOut) r.editedBy="owner"; doc.days[d]=r; });
+      if(act==="tcDel") delete doc.days[t.dataset.d];
+      if(act==="tcAdd"){ const d=+$("#tcNewDay").value, i=$("#tcNewIn").value, o=$("#tcNewOut").value, b=+$("#tcNewBrk").value||0; if(!d||!i) throw new Error("日と出勤時刻を入れてください"); const date=`${ym}-${pad(d)}`; doc.days[d]={in:date+"T"+i,...(o?{out:date+"T"+o}:{}),brk:b,manual:true,editedBy:"owner"}; }
+      await Store.saveTC(doc); toast(act==="tcDel"?"削除しました":act==="tcAdd"?"追加しました":"保存しました"); }); break;
+  }
+});
+app.addEventListener("change", e=>{
+  const t=e.target;
+  if(t.dataset.wt){ const d=+t.dataset.d, W=state.draftWish; if(W.days[d]?.t==="p"){ W.days[d][t.dataset.wt]=t.value; state.draftDirty=true; go(); } return; }
+  const sid=t.dataset.tin||t.dataset.tout;
+  if(sid && state.sheetDay){ const s=$(`#tin_${sid}`)?.value, en=$(`#tout_${sid}`)?.value, S=Store.settings; if(!s||!en) return; const d=state.sheetDay;
+    writeCells(c=>{ const k=`${d}_${sid}`; c[k] = withTags((s===S.openStart&&en===S.openEnd) ? "ON" : `C:${s}-${en}`, tagsOf(c[k])); }); }
+});
+app.addEventListener("input", e=>{ if(e.target.id==="wMemo"){ state.draftWish.memo=e.target.value; state.draftDirty=true; } });
+app.addEventListener("submit", async e=>{
+  e.preventDefault(); const f=e.target, fd=new FormData(f), S=Store.settings;
+  if(f.id==="regf"){ const name=(fd.get("name")||"").trim(); if(!name){ $("#regerr").textContent="お名前を入れてください"; return; } await busy(async()=>{ await Store.register(name); toast(`${name}さん、登録しました`); }); }
+  if(f.id==="pinf"){ await busy(async()=>{ await Store.adminLogin(String(fd.get("pin")||"")); state.role="admin"; toast("管理者として登録しました"); }); }
+  if(f.id==="stf"){
+    const id=fd.get("id")||("s_"+Date.now().toString(36)); const prev=Store.staff.find(s=>s.id===id)||{};
+    const s={id,name:(fd.get("name")||"").trim(),short:(fd.get("short")||"").trim(),emp:fd.get("emp")||"",order:+fd.get("order")||99,active:!!fd.get("active"),note:fd.get("note")||""};
+    if(!s.name) return; await busy(async()=>{ await Store.upsertStaff(s); state.editStaff=null; toast(prev.id?"保存しました":"追加しました"); });
+  }
+  if(f.id==="setf"){
+    const required=WD.map((_,i)=>+fd.get("req"+i)||0), closed=WD.map((_,i)=>fd.get("closed"+i)?i:-1).filter(i=>i>=0);
+    const patch={name:(fd.get("name")||"").trim()||S.name,eyebrow:fd.get("eyebrow")||"",openStart:fd.get("openStart")||S.openStart,openEnd:fd.get("openEnd")||S.openEnd,deadlineDay:Math.min(28,Math.max(1,+fd.get("deadlineDay")||20)),required,closed,closedHol:!!fd.get("closedHol"),tcUnit:+fd.get("tcUnit")||30,tcMode:TC_MODES[fd.get("tcMode")]?fd.get("tcMode"):"nearest",notifyWish:!!fd.get("notifyWish")};
+    const pin=String(fd.get("pin")||"").trim(); if(pin) patch.pin=pin;
+    await busy(async()=>{ await Store.saveSettings(patch); toast("設定を保存しました"); });
+  }
+});
+function buildLineText(){
+  const ym=state.month, {y,m}=parseYM(ym), S=Store.settings, sh=Store.shiftOf(ym), DC=dayCounts(ym), lines=[`【${S.name} ${m}月シフト】${sh.status==="published"?"":"（仮）"}　標準 ${dropZero(S.openStart)}〜${dropZero(S.openEnd)}`];
+  for(let d=1;d<=daysIn(y,m);d++){
+    const w=dow(y,m,d), c=DC[d]; if(c.closed){ lines.push(`${m}/${d}(${WD[w]}${isHol(y,m,d)?"祝":""}) 定休`); continue; }
+    const names=c.on.map(r=>{ const ex=[r.info.kind==="custom"?`${dropZero(r.info.start)}-${dropZero(r.info.end)}`:"",tagLabel(r.info.tags)].filter(Boolean).join("・"); return r.s.name+(ex?`(${ex})`:""); });
+    lines.push(`${m}/${d}(${WD[w]}${isHol(y,m,d)?"祝":""}) ${names.length?names.join("・")+`（${names.length}人）`:"出勤者なし"}`);
+  }
+  return lines.join("\n");
+}
+function buildTcText(){
+  const ym=state.month, {y,m}=parseYM(ym), tcs=Store.tcOf(ym), S=Store.settings, lines=[`【${S.name} ${y}年${m}月 勤務時間】${+S.tcUnit||30}分刻み／${TC_MODES[S.tcMode||"nearest"]}`];
+  activeStaff().forEach(s=>{ const doc=tcs[s.id]; if(!doc) return; let tot=0; const ds=Object.keys(doc.days||{}).map(Number).sort((a,b)=>a-b); lines.push(`■ ${s.name}`);
+    ds.forEach(d=>{ const r=doc.days[d], c=calcRec(r); if(!c) return; if(c.open){ lines.push(`${m}/${d}(${WD[dow(y,m,d)]}) ${dropZero(c.inR)}〜 退勤未`); return; } tot+=c.mins; lines.push(`${m}/${d}(${WD[dow(y,m,d)]}) ${dropZero(c.inR)}〜${dropZero(c.outR)}${r.brk?` 休憩${r.brk}分`:""} ${fmtH(c.mins/60)}h${r.manual?" ※手入力":""}`); });
+    lines.push(`合計 ${fmtH(tot/60)}h`); });
+  return lines.join("\n");
+}
+
+/* ============================================================
+   起動
+   ============================================================ */
+Store.on(()=>render());
+Store.init().then(()=>{ if(Store.isAdmin && !Store.me) state.role="admin"; render(); });
+setInterval(()=>{ const el=$("#clock"); if(el){ const n=new Date(); el.textContent=`${pad(n.getHours())}:${pad(n.getMinutes())}`; } },15000);
+document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible" && Store.ready && Date.now()-Store.lastFetch>60000) Store.refresh(); });
+window.addEventListener("beforeunload",()=>{ if(Store.dirtyShift) Store.flushShift(); });
+</script>
+</body>
+</html>
