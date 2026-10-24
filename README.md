@@ -4,7 +4,7 @@
 経営者は同じアプリの管理画面で、**1か月の月カレンダー上で出勤・休を割り当て、公開（全員にLINE通知）、勤怠の集計・修正**をします。
 
 ```
-web/index.html      スタッフ・経営者が開く画面（LIFF）。GitHub Pages などの https で公開する
+index.html      スタッフ・経営者が開く画面（LIFF）。GitHub Pages などの https で公開する
 gas/Code.gs         保存と通知（Google Apps Script）。スプレッドシートに保存、Messaging API で通知
 gas/appsscript.json Apps Script の設定（タイムゾーン Asia/Tokyo）
 ```
@@ -48,7 +48,7 @@ gas/appsscript.json Apps Script の設定（タイムゾーン Asia/Tokyo）
 
 ### 3. 画面（index.html）を公開する
 
-1. `web/index.html` の先頭近くの `CONFIG` を書き換える。
+1. `index.html` の先頭近くの `CONFIG` を書き換える。
 
    ```js
    const CONFIG = {
@@ -58,8 +58,8 @@ gas/appsscript.json Apps Script の設定（タイムゾーン Asia/Tokyo）
    ```
 
 2. https で公開する。いちばん簡単なのは GitHub Pages：
-   - GitHub にリポジトリ（例 `rinoa-shift`）を作り、`web/index.html` を置く。
-   - Settings → Pages → Branch を `main`、フォルダを `/web`（または `index.html` を置いた場所）→ Save。
+   - GitHub にリポジトリ（例 `rinoa-shift`）を作り、`index.html` を置く。
+   - Settings → Pages → Branch を `main`、フォルダを `/ (root)`→ Save。
    - 数分で `https://ユーザー名.github.io/rinoa-shift/` で開けるようになる。
 3. 手順2-3 の LIFF の**エンドポイントURL**を、この公開 URL に直す。
 
