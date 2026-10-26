@@ -239,7 +239,8 @@ function monthsFor_(months, me, isAdmin) {
     const ym = ym_(m);
     const sh = shifts.find(r => r.month === ym) || null;
     const shift = sh ? { month: ym, status: sh.status || "collecting", publishedAt: sh.publishedAt || "", cells: (isAdmin || sh.status === "published") ? (sh.cells || {}) : {} } : null;
-    const w = {}; wishes.filter(r => r.month === ym && (isAdmin || (me && r.staffId === me.id))).forEach(r => { w[r.staffId] = r; });
+    // 希望：全員分を返す（誰が入れるかをスタッフ同士で見られるように）。連絡事項は本人と管理者のみ
+    const w = {}; wishes.filter(r => r.month === ym).forEach(r => { const own = me && r.staffId === me.id; w[r.staffId] = (isAdmin || own) ? r : { month: r.month, staffId: r.staffId, days: r.days, updatedAt: r.updatedAt }; });
     const t = {}; tcs.filter(r => r.month === ym && (isAdmin || (me && r.staffId === me.id))).forEach(r => { t[r.staffId] = r; });
     out[ym] = { shift, wishes: w, timecards: t };
   });
