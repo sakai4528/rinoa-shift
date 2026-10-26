@@ -215,7 +215,7 @@ const CONFIG = {
 /* ============================================================
    共通
    ============================================================ */
-const SERVER_VERSION="2026-10-27.4";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
+const SERVER_VERSION="2026-10-27.5";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
 const TC_MODES={nearest:"四捨五入（15分未満は切り捨て、15分以上は30分扱い）",floor:"すべて切り捨て",ceil:"すべて切り上げ",favor:"出勤は切り上げ・退勤は切り捨て"};
 const WD = ["日","月","火","水","木","金","土"];
 const pad = n => String(n).padStart(2,"0");
@@ -698,6 +698,11 @@ function vSettings(){
     <label class="inline"><input type="checkbox" name="notifyDeadline" id="cNotifyDeadline" ${S.notifyDeadline===true?"checked":""}>希望の締切の3日前と当日に、まだ出していない人へLINEで知らせる</label>
     <button class="btn" ${state.busy?"disabled":""}>設定を保存</button>
   </form></section>
+  <section class="card"><h2>LINE公式アカウント<small>リノア シフト表</small></h2>
+    <p class="note">前の日のお知らせと、トーク画面の下のメニュー（タイムカード／シフト表／希望を出す）に使います。</p>
+    <div id="lineStat" class="note" style="margin:8px 0">${state.lineStat?esc(state.lineStat):""}</div>
+    <div class="row"><button class="btn ghost sm" data-act="lineCheck">つながっているか確かめる</button><button class="btn sm" data-act="richMenu" ${state.busy?"disabled":""}>トーク画面のメニューを付ける</button></div>
+  </section>
   <section class="card"><h2>店舗端末（iPad）<small>${Store.devices.length}台</small></h2>
     <p class="note">店に置くiPadで <b>https://sakai4528.github.io/rinoa-shift/kiosk.html</b> を開き、下の端末コードを入れると打刻専用の画面になります。LINEも管理画面もその端末には表示されません。コードは他人に見せないでください。</p>
     <div class="people" style="margin:10px 0">${Store.devices.map(d=>`<div class="stf"><div><div class="nm">${esc(d.name)}</div><div class="mt">端末コード <b style="font-family:ui-monospace,Menlo,monospace;letter-spacing:.08em;color:var(--ink)">${esc(d.key)}</b>　${d.lastSeen?`最終接続 ${esc(String(d.lastSeen).slice(0,16).replace("T"," "))}`:"未接続"}</div></div><button class="btn danger sm" data-act="delDevice" data-id="${esc(d.id)}">無効にする</button></div>`).join("")||'<div class="note">まだ端末コードがありません。</div>'}</div>
@@ -713,7 +718,7 @@ function go(){ render(); }
 function setMonth(n){ state.month=addMonth(state.month,n); state.selDay=null; state.sheetDay=null; state.lineText=null; go(); }
 function writeCells(mut){ const sh={...Store.shiftOf(state.month)}; sh.cells={...sh.cells}; mut(sh.cells); Store.setShiftLocal(sh); }
 async function busy(fn){ if(state.busy) return; state.busy=true; go(); try{ await fn(); }catch(e){ toast(errMsg(e)); } state.busy=false; go(); }
-function errMsg(e){ const m=String(e&&e.message||e); return ({closed:"受付は締め切られています",forbidden:"この操作は管理者のみです",not_registered:"先に名前を登録してください",already_in:"すでに出勤しています",not_in:"出勤が押されていません",bad_pin:"暗証番号が違います",bad_pin_format:"暗証番号は4〜6桁の数字にしてください",phone_punch_disabled:"出勤・退勤は店内のiPadで押してください",pin_not_set:"先に暗証番号を設定してください",bad_staff:"スタッフが見つかりません",no_record:"その日の打刻がありません",text_required:"内容を書いてください",undo_expired:"取り消せるのは打刻から15分以内です",not_out:"退勤はまだ押されていません",already_out:"退勤済みのため取り消せません",bad_wage:"時給が正しくありません",bad_rate:"歩合は0〜100%で入れてください",bad_date:"日にちを入れてください",future_date:"先の日付には入れられません",too_old:"古い日付の分は経営者に入れてもらってください",bad_kind:"種類を選んでください",bad_price:"値段を入れてください",bad_qty:"本数が正しくありません",bad_bottle:"記録が見つかりません",bottle_locked:"確認済みの記録は経営者に直してもらってください"})[m]||("エラー："+m); }
+function errMsg(e){ const m=String(e&&e.message||e); return ({closed:"受付は締め切られています",forbidden:"この操作は管理者のみです",not_registered:"先に名前を登録してください",already_in:"すでに出勤しています",not_in:"出勤が押されていません",bad_pin:"暗証番号が違います",bad_pin_format:"暗証番号は4〜6桁の数字にしてください",phone_punch_disabled:"出勤・退勤は店内のiPadで押してください",pin_not_set:"先に暗証番号を設定してください",bad_staff:"スタッフが見つかりません",no_record:"その日の打刻がありません",text_required:"内容を書いてください",undo_expired:"取り消せるのは打刻から15分以内です",not_out:"退勤はまだ押されていません",already_out:"退勤済みのため取り消せません",bad_wage:"時給が正しくありません",bad_rate:"歩合は0〜100%で入れてください",bad_date:"日にちを入れてください",future_date:"先の日付には入れられません",too_old:"古い日付の分は経営者に入れてもらってください",bad_kind:"種類を選んでください",bad_price:"値段を入れてください",bad_qty:"本数が正しくありません",bad_bottle:"記録が見つかりません",bottle_locked:"確認済みの記録は経営者に直してもらってください",no_token:"まだLINEの鍵が入っていません"})[m]||("エラー："+m); }
 
 app.addEventListener("click", async e=>{
   const t=e.target.closest("[data-act]"); if(!t) return;
@@ -733,6 +738,8 @@ app.addEventListener("click", async e=>{
     case "bKind": keepBForm(); state.bForm.kind=t.dataset.v; go(); break;
     case "bDel": { if(t.dataset.sure!=="1"){ t.dataset.sure="1"; t.textContent="本当に消す"; break; } await busy(async()=>{ await Store.updateBottle(t.dataset.id,{remove:true}); toast("消しました"); }); break; }
     case "bCheck": await busy(async()=>{ await Store.updateBottle(t.dataset.id,{checked:t.checked}); }); break;
+    case "lineCheck": await busy(async()=>{ const j=await Store.api("lineStatus",{}); state.lineStat= j.ok?`つながっています：${j.name}（${j.basicId}）`: j.reason==="no_token"?"まだ鍵が入っていません（Apps Script の「スクリプト プロパティ」の MESSAGING_TOKEN）":"鍵が正しくないようです。入れ直してください"; }); break;
+    case "richMenu": await busy(async()=>{ await Store.api("setupRichMenu",{}); state.lineStat="トーク画面の下にメニューを付けました（LINEを開き直すと出ます）"; toast("メニューを付けました"); }); break;
     case "payReload": delete Store.pay[state.month]; delete Store.failed["p:"+state.month]; delete Store.bottles[state.month+"|"]; delete Store.failed["b:"+state.month+"|"]; go(); break;
     case "selDay": state.selDay = state.selDay===+t.dataset.d?null:+t.dataset.d; go(); break;
     case "openDay": state.sheetDay=+t.dataset.d; go(); break;
@@ -826,7 +833,10 @@ function buildTcText(){
    起動
    ============================================================ */
 Store.on(()=>render());
-Store.init().then(()=>{ if(Store.isAdmin && !Store.me) state.role="admin"; render(); });
+Store.init().then(()=>{ if(Store.isAdmin && !Store.me) state.role="admin";
+  const tab=new URLSearchParams(location.search).get("tab");   // トーク画面のメニューから開いたとき（?tab=tc / shift / wish）
+  if(["tc","shift","wish","bottle"].includes(tab)){ state.role="staff"; state.tab=tab; }
+  render(); });
 setInterval(()=>{ const el=$("#clock"); if(el){ const n=new Date(); el.textContent=`${pad(n.getHours())}:${pad(n.getMinutes())}`; } },15000);
 document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible" && Store.ready && Date.now()-Store.lastFetch>60000) Store.refresh(); });
 window.addEventListener("beforeunload",()=>{ if(Store.dirtyShift) Store.flushShift(); });

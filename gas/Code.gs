@@ -14,7 +14,7 @@
  *   4. デプロイ → 新しいデプロイ → ウェブアプリ（実行ユーザー: 自分 / アクセス: 全員）
  */
 
-const VERSION = "2026-10-27.4";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
+const VERSION = "2026-10-27.5";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
 const TZ = "Asia/Tokyo";
 const PROP = PropertiesService.getScriptProperties();
 
@@ -331,6 +331,23 @@ function handle_(action, data, auth) {
       return { bottle: b };
     }
 
+    /* ---------- 公式アカウントのトーク画面の下のメニュー ---------- */
+    case "setupRichMenu": {
+      needAdmin();
+      const r = setupRichMenu_();
+      log_(auth, "setupRichMenu", r.richMenuId || "");
+      return r;
+    }
+    case "lineStatus": {
+      needAdmin();
+      const token = PROP.getProperty("MESSAGING_TOKEN");
+      if (!token) return { ok: false, reason: "no_token" };
+      const res = UrlFetchApp.fetch("https://api.line.me/v2/bot/info", { headers: { Authorization: "Bearer " + token }, muteHttpExceptions: true });
+      if (res.getResponseCode() !== 200) return { ok: false, reason: "bad_token" };
+      const j = JSON.parse(res.getContentText());
+      return { ok: true, name: j.displayName || "", basicId: j.basicId || "" };
+    }
+
     /* ---------- お給料の見込み（経営ボードへも書く） ---------- */
     case "getPay": {
       needAdmin();
@@ -426,6 +443,35 @@ function savePayroll_(month) {
 function payrollJob() {
   const now = new Date();
   [fmt_(now, "yyyy-MM"), fmt_(new Date(now.getFullYear(), now.getMonth() - 1, 1), "yyyy-MM")].forEach(m => { try { savePayroll_(m); } catch (e) { Logger.log("payroll " + m + " " + e); } });
+}
+
+/* ============================================================
+   リッチメニュー（トーク画面の下の3つのボタン）：タイムカード／シフト表／希望を出す
+   画像は GitHub Pages の docs/richmenu.png。鍵は MESSAGING_TOKEN（スクリプトのプロパティ）を使う
+   ============================================================ */
+const LIFF_BASE = "https://liff.line.me/2012191949-slfaXSbA";
+const RICHMENU_IMAGE = "https://sakai4528.github.io/rinoa-shift/docs/richmenu.png";
+function setupRichMenu_() {
+  const token = PROP.getProperty("MESSAGING_TOKEN");
+  if (!token) throw new Error("no_token");
+  const H = { Authorization: "Bearer " + token };
+  const call = (method, url, payload, contentType) => {
+    const o = { method, headers: H, muteHttpExceptions: true };
+    if (payload !== undefined) { o.payload = payload; o.contentType = contentType || "application/json"; }
+    const r = UrlFetchApp.fetch(url, o);
+    if (r.getResponseCode() >= 300) throw new Error("line_api " + r.getResponseCode() + " " + r.getContentText().slice(0, 200));
+    return r.getContentText() ? JSON.parse(r.getContentText()) : {};
+  };
+  const NAME = "リノア シフト表";
+  (call("get", "https://api.line.me/v2/bot/richmenu/list").richmenus || []).forEach(m => { if (m.name === NAME) call("delete", "https://api.line.me/v2/bot/richmenu/" + m.richMenuId); });
+  const W = 2500, cw = Math.floor(W / 3);
+  const menu = { size: { width: W, height: 843 }, selected: true, name: NAME, chatBarText: "シフト表をひらく",
+    areas: [["tc", 0], ["shift", 1], ["wish", 2]].map(a => ({ bounds: { x: a[1] * cw, y: 0, width: a[1] === 2 ? W - 2 * cw : cw, height: 843 }, action: { type: "uri", uri: LIFF_BASE + "?tab=" + a[0] } })) };
+  const id = call("post", "https://api.line.me/v2/bot/richmenu", JSON.stringify(menu)).richMenuId;
+  const img = UrlFetchApp.fetch(RICHMENU_IMAGE).getBlob();
+  call("post", "https://api-data.line.me/v2/bot/richmenu/" + id + "/content", img.getBytes(), "image/png");
+  call("post", "https://api.line.me/v2/bot/user/all/richmenu/" + id, "");
+  return { richMenuId: id };
 }
 
 /* ============================================================
