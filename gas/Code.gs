@@ -132,8 +132,8 @@ function handle_(action, data, auth) {
       log_(auth, "saveWish", month + " " + sid);
       if (settings.notifyWish && !isAdmin) {
         const who = staff.find(s => s.id === sid);
-        const xs = Object.keys(w.days).filter(d => w.days[d] && w.days[d].t === "x").length;
-        pushTo_(admins.map(a => a.userId), `【${settings.name}】${who ? who.name : ""}さんが${+month.slice(5)}月の希望を提出しました（希望休 ${xs}日）。`);
+        const xs = Object.keys(w.days).filter(d => w.days[d] && (w.days[d].t === "o" || w.days[d].t === "p")).length;
+        pushTo_(admins.map(a => a.userId), `【${settings.name}】${who ? who.name : ""}さんが${+month.slice(5)}月の希望を提出しました（入れる日 ${xs}日）。`);
       }
       return { wish: w };
     }
