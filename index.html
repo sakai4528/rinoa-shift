@@ -215,7 +215,7 @@ const CONFIG = {
 /* ============================================================
    共通
    ============================================================ */
-const SERVER_VERSION="2026-10-27.3";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
+const SERVER_VERSION="2026-10-27.4";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
 const TC_MODES={nearest:"四捨五入（15分未満は切り捨て、15分以上は30分扱い）",floor:"すべて切り捨て",ceil:"すべて切り上げ",favor:"出勤は切り上げ・退勤は切り捨て"};
 const WD = ["日","月","火","水","木","金","土"];
 const pad = n => String(n).padStart(2,"0");
@@ -444,7 +444,7 @@ function vMyShift(m){
     ${pub?`${vMonthCal(ym,{meId:m.id})}
     <div class="legend"><span><i style="background:var(--chip);box-shadow:inset 0 0 0 1.5px var(--accent)"></i>あなた（太枠）</span><span><i style="background:var(--douhan)"></i>同伴出勤</span><span><i style="background:var(--early)"></i>早上がり</span><span><i style="background:var(--today);box-shadow:inset 0 0 0 2px var(--accent)"></i>今日</span><span>点線＝時間が標準と違う</span></div>
     <div class="sum"><div><b>${days}</b><span>あなたの出勤日数</span></div><div><b>${fmtH(hours)}</b><span>予定時間（h）</span></div><div><b>${n-days}</b><span>休み</span></div></div>`
-    :`<div class="empty"><b>${monthLabel(ym)}のシフトはまだ公開されていません</b>${sh.status==="collecting"?`希望は「希望を出す」から ${S.deadlineDay}日まで に送ってください。`:"経営者が作成中です。公開されるとLINEでお知らせします。"}</div>`}
+    :`<div class="empty"><b>${monthLabel(ym)}のシフトはまだ公開されていません</b>${sh.status==="collecting"?`希望は「希望を出す」から ${S.deadlineDay}日まで に送ってください。`:(S.notifyPublish===true?"経営者が作成中です。公開されるとLINEでお知らせします。":"経営者が作成中です。公開されたらここに出ます。")}</div>`}
   </section>
   ${pub&&state.selDay?vDayPeople(ym,state.selDay):(pub?`<p class="note">日付をタップすると、その日の出勤メンバーと時間が見られます。</p>`:"")}`;
 }
@@ -600,7 +600,7 @@ function vAdminCal(){
       <button class="btn ghost sm" data-act="clearMonth">この月をクリア</button>
     </div>
     <div class="row" style="margin-top:10px">
-      ${pub?`<button class="btn danger" data-act="status" data-v="editing">公開を取り消す</button>`:`<button class="btn" data-act="status" data-v="published" ${state.busy?"disabled":""}>シフトを公開する（全員にLINE通知）</button>`}
+      ${pub?`<button class="btn danger" data-act="status" data-v="editing">公開を取り消す</button>`:`<button class="btn" data-act="status" data-v="published" ${state.busy?"disabled":""}>シフトを公開する${Store.settings.notifyPublish===true?"（全員にLINE通知）":""}</button>`}
       <button class="btn ghost" data-act="lineText">LINEに貼る用テキスト</button>
     </div>
     ${state.lineText?`<pre class="txt" id="lineTxt">${esc(state.lineText)}</pre><div class="row" style="margin-top:8px"><button class="btn sm" data-act="copyLine">コピー</button><button class="btn ghost sm" data-act="closeLine">閉じる</button></div>`:""}
@@ -660,7 +660,7 @@ function vWishList(){
     return `<tr><td><b>${esc(s.name)}</b><br><button class="btn ghost sm" data-act="viewAs" data-id="${esc(s.id)}">代理入力</button></td><td>${w?`<span class="badge pub">提出済</span><div class="note">${esc((w.updatedAt||"").slice(0,16).replace("T"," "))}</div>`:'<span class="badge">未提出</span>'}</td><td>${xs.length?xs.map(d=>`${d}日(${WD[dow(y,m,d)]})`).join("、"):"—"}</td><td>${ps.length?ps.join("<br>"):"—"}</td><td>${esc(w?.memo||"")}</td></tr>`; }).join("");
   const done=list.filter(s=>wishes[s.id]).length;
   return `<section class="card"><div class="row space">${vMonthNav("pm",ym)}<span class="badge ${done===list.length&&list.length?"pub":"col"}">提出 ${done}／${list.length}名</span></div>
-  <p class="note" style="margin:8px 0">締切は毎月${S.deadlineDay}日（前月）。締切3日前と当日の朝9時に、未提出の人へ自動でLINEが届きます。</p>
+  <p class="note" style="margin:8px 0">締切は毎月${S.deadlineDay}日（前月）。${S.notifyDeadline===true?"締切3日前と当日の朝9時に、未提出の人へ自動でLINEが届きます。":"締切のLINEは送らない設定です（「設定」で変えられます）。"}</p>
   <div class="tbl"><table class="list"><thead><tr><th>スタッフ</th><th>提出</th><th>入れる日</th><th>時間指定</th><th>連絡事項</th></tr></thead><tbody>${rows||'<tr><td colspan="5" class="note">スタッフが登録されていません</td></tr>'}</tbody></table></div></section>`;
 }
 function vStaffAdmin(){
@@ -694,6 +694,8 @@ function vSettings(){
     <label class="inline"><input type="checkbox" name="phonePunch" id="cPhonePunch" ${S.phonePunch===true?"checked":""}>スマホのLINEからも出勤・退勤を押せるようにする<span class="h">（オフなら店舗iPadだけ）</span></label>
     <label class="inline"><input type="checkbox" name="kioskPin" id="cKioskPin" ${S.kioskPin!==false?"checked":""}>店舗iPadでの打刻に本人の暗証番号を求める</label>
     <label class="inline"><input type="checkbox" name="remind" id="cRemind" ${S.remind!==false?"checked":""}>出勤の前の日のお昼12時に、本人へ「明日は○時から」とLINEで知らせる</label>
+    <label class="inline"><input type="checkbox" name="notifyPublish" id="cNotifyPublish" ${S.notifyPublish===true?"checked":""}>シフトを公開したとき、全員にLINEで知らせる</label>
+    <label class="inline"><input type="checkbox" name="notifyDeadline" id="cNotifyDeadline" ${S.notifyDeadline===true?"checked":""}>希望の締切の3日前と当日に、まだ出していない人へLINEで知らせる</label>
     <button class="btn" ${state.busy?"disabled":""}>設定を保存</button>
   </form></section>
   <section class="card"><h2>店舗端末（iPad）<small>${Store.devices.length}台</small></h2>
@@ -742,7 +744,7 @@ app.addEventListener("click", async e=>{
     case "viewAs": state.proxyId=t.dataset.id; state.role="staff"; state.tab="wish"; state.draftWish=null; go(); toast(`${Store.staff.find(s=>s.id===t.dataset.id)?.name||""}さんとして入力中（代理）`); break;
     case "wishDay": { const d=+t.dataset.d, W=state.draftWish, cur=W.days[d]?.t; if(cur!=="o"&&cur!=="p") W.days[d]={t:"o"}; else if(cur==="o") W.days[d]={t:"p",from:Store.settings.openStart||"10:00",to:Store.settings.openEnd||"15:00"}; else delete W.days[d]; state.selDay=d; state.draftDirty=true; go(); break; }
     case "sendWish": await busy(async()=>{ const W=state.draftWish; W.memo=$("#wMemo")?.value||""; await Store.saveWish({month:W.month,staffId:W.staffId,days:W.days,memo:W.memo}); state.draftDirty=false; toast("希望を送信しました"); }); break;
-    case "status": await busy(async()=>{ const sh={...Store.shiftOf(state.month)}; sh.cells={...sh.cells}; sh.status=t.dataset.v; await Store.saveShiftNow(sh); toast({published:"シフトを公開し、スタッフにLINEで通知しました",editing:"受付を締め切りました",collecting:"希望受付を再開しました"}[sh.status]); }); break;
+    case "status": await busy(async()=>{ const sh={...Store.shiftOf(state.month)}; sh.cells={...sh.cells}; sh.status=t.dataset.v; await Store.saveShiftNow(sh); toast({published:Store.settings.notifyPublish===true?"シフトを公開し、スタッフにLINEで通知しました":"シフトを公開しました",editing:"受付を締め切りました",collecting:"希望受付を再開しました"}[sh.status]); }); break;
     case "applyWish": { const wishes=Store.wishesOf(state.month), {y,m}=parseYM(state.month); let n=0,off=0; writeCells(c=>{ activeStaff().forEach(s=>{ const wdoc=wishes[s.id]; if(!wdoc) return; const days=wdoc.days||{}; for(let d=1;d<=daysIn(y,m);d++){ const k=`${d}_${s.id}`; if(c[k]) continue; const v=days[d]; if(isClosedDay(y,m,d)){ c[k]="OFF"; continue; } if(v?.t==="o"){ c[k]="ON"; n++; } else if(v?.t==="p"&&v.from&&v.to){ c[k]=(v.from===S.openStart&&v.to===S.openEnd)?"ON":`C:${v.from}-${v.to}`; n++; } else { c[k]="OFF"; off++; } } }); }); toast(`提出済みの希望を反映：出勤 ${n}マス・休 ${off}マス（未提出の人は変えていません）`); break; }
     case "fillDefault": { const {y,m}=parseYM(state.month); let n=0; writeCells(c=>{ activeStaff().forEach(s=>{ for(let d=1;d<=daysIn(y,m);d++){ const k=`${d}_${s.id}`; if(!c[k]){ c[k]= isClosedDay(y,m,d)?"OFF":"ON"; n++; } } }); }); toast(`${n}マスを埋めました（定休日・祝日は休）`); break; }
     case "clearMonth": { if(t.dataset.sure!=="1"){ t.dataset.sure="1"; t.textContent="本当にクリアする（もう一度タップ）"; t.classList.add("danger"); break; }
@@ -797,7 +799,7 @@ app.addEventListener("submit", async e=>{
   }
   if(f.id==="setf"){
     const required=WD.map((_,i)=>+fd.get("req"+i)||0), closed=WD.map((_,i)=>fd.get("closed"+i)?i:-1).filter(i=>i>=0);
-    const patch={name:(fd.get("name")||"").trim()||S.name,eyebrow:fd.get("eyebrow")||"",openStart:fd.get("openStart")||S.openStart,openEnd:fd.get("openEnd")||S.openEnd,deadlineDay:Math.min(28,Math.max(1,+fd.get("deadlineDay")||20)),required,closed,closedHol:!!fd.get("closedHol"),tcUnit:+fd.get("tcUnit")||30,tcMode:TC_MODES[fd.get("tcMode")]?fd.get("tcMode"):"nearest",notifyWish:!!fd.get("notifyWish"),phonePunch:!!fd.get("phonePunch"),kioskPin:!!fd.get("kioskPin"),remind:!!fd.get("remind")};
+    const patch={name:(fd.get("name")||"").trim()||S.name,eyebrow:fd.get("eyebrow")||"",openStart:fd.get("openStart")||S.openStart,openEnd:fd.get("openEnd")||S.openEnd,deadlineDay:Math.min(28,Math.max(1,+fd.get("deadlineDay")||20)),required,closed,closedHol:!!fd.get("closedHol"),tcUnit:+fd.get("tcUnit")||30,tcMode:TC_MODES[fd.get("tcMode")]?fd.get("tcMode"):"nearest",notifyWish:!!fd.get("notifyWish"),phonePunch:!!fd.get("phonePunch"),kioskPin:!!fd.get("kioskPin"),remind:!!fd.get("remind"),notifyPublish:!!fd.get("notifyPublish"),notifyDeadline:!!fd.get("notifyDeadline")};
     const pin=String(fd.get("pin")||"").trim(); if(pin) patch.pin=pin;
     await busy(async()=>{ await Store.saveSettings(patch); toast("設定を保存しました"); });
   }

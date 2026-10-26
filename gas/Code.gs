@@ -14,7 +14,7 @@
  *   4. デプロイ → 新しいデプロイ → ウェブアプリ（実行ユーザー: 自分 / アクセス: 全員）
  */
 
-const VERSION = "2026-10-27.3";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
+const VERSION = "2026-10-27.4";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
 const TZ = "Asia/Tokyo";
 const PROP = PropertiesService.getScriptProperties();
 
@@ -28,6 +28,8 @@ const DEFAULT_SETTINGS = {
   phonePunch: false,     // スマホ（LINE）からの打刻を許可するか。標準は店舗端末（iPad）のみ
   kioskPin: true,        // 店舗端末での打刻に本人の暗証番号を求める
   remind: true,          // 出勤の前の日のお昼12時に本人へ知らせる
+  notifyPublish: false,  // シフトを公開したとき全員へ知らせる（2026-10 やっさん：不要）
+  notifyDeadline: false, // 希望の締切3日前・当日に未提出の人と管理者へ知らせる（2026-10 やっさん：不要）
   nightPremium: 0.25,    // 夜10時〜朝5時の割増
   saleKinds: ["シャンパン", "ワイン"],
   saleTax: 0             // ボトルの値段は税込みで入れ、歩合も税込みに掛ける（0.1 にすると税抜き＝税込÷1.1 に掛ける）
@@ -248,6 +250,8 @@ function handle_(action, data, auth) {
       const doc = { month, status: data.status || prev.status || "collecting", publishedAt: prev.publishedAt || "", cells: data.cells || {} };
       if (doc.status === "published" && prev.status !== "published") {
         doc.publishedAt = nowStr_();
+      }
+      if (doc.status === "published" && prev.status !== "published" && settings.notifyPublish === true) {
         const ids = staff.filter(s => s.active !== false && s.userId).map(s => s.userId);
         const url = PROP.getProperty("LIFF_URL") || "";
         pushTo_(ids, `【${settings.name}】${+month.slice(5)}月のシフトを公開しました。\n「シフト表」タブで確認してください。${url ? "\n" + url : ""}`);
@@ -606,6 +610,8 @@ function sanitizeSettings_(s) {
   if (s.phonePunch !== undefined) o.phonePunch = !!s.phonePunch;
   if (s.kioskPin !== undefined) o.kioskPin = !!s.kioskPin;
   if (s.remind !== undefined) o.remind = !!s.remind;
+  if (s.notifyPublish !== undefined) o.notifyPublish = !!s.notifyPublish;
+  if (s.notifyDeadline !== undefined) o.notifyDeadline = !!s.notifyDeadline;
   if (s.nightPremium !== undefined) o.nightPremium = Math.min(1, Math.max(0, +s.nightPremium || 0));
   return o;
 }
@@ -640,8 +646,8 @@ function dailyJob() {
   const url = PROP.getProperty("LIFF_URL") || "";
   const dl = +settings.deadlineDay || 20;
 
-  // 希望の締切 3日前と当日
-  if (day === dl - 3 || day === dl) {
+  // 希望の締切 3日前と当日（設定でオンのときだけ）
+  if (settings.notifyDeadline === true && (day === dl - 3 || day === dl)) {
     const wishes = readAll_("wishes").filter(w => w.month === nextYm);
     const missing = staff.filter(s => !wishes.some(w => w.staffId === s.id));
     pushTo_(missing.map(s => s.userId), `【${settings.name}】${+nextYm.slice(5)}月の希望休の締切は${day === dl ? "本日" : `${dl}日`}です。まだ提出がありません。「希望を出す」から送ってください。${url ? "\n" + url : ""}`);
