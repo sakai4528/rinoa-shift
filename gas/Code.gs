@@ -14,7 +14,7 @@
  *   4. デプロイ → 新しいデプロイ → ウェブアプリ（実行ユーザー: 自分 / アクセス: 全員）
  */
 
-const VERSION = "2026-10-27.2";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
+const VERSION = "2026-10-27.3";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
 const TZ = "Asia/Tokyo";
 const PROP = PropertiesService.getScriptProperties();
 
@@ -30,7 +30,7 @@ const DEFAULT_SETTINGS = {
   remind: true,          // 出勤の前の日のお昼12時に本人へ知らせる
   nightPremium: 0.25,    // 夜10時〜朝5時の割増
   saleKinds: ["シャンパン", "ワイン"],
-  saleTax: 0.1           // ボトルの値段は税込みで入れる。歩合は税抜き（税込み÷1.1）に掛ける
+  saleTax: 0             // ボトルの値段は税込みで入れ、歩合も税込みに掛ける（0.1 にすると税抜き＝税込÷1.1 に掛ける）
 };
 const DAY_START_HOUR = 6;   // 朝6時までは前の日の営業として扱う
 
@@ -341,7 +341,7 @@ function handle_(action, data, auth) {
 /* ============================================================
    お給料の見込み
    時間：打刻（丸め後・休憩を引く）があればそれ、なければ公開済みシフトの予定
-   金額：時給×時間 ＋ 時給×割増×夜10時〜朝5時の時間 ＋ ボトル売上の税抜き（税込÷1.1）×歩合
+   金額：時給×時間 ＋ 時給×割増×夜10時〜朝5時の時間 ＋ ボトル売上（税込）×歩合
    ============================================================ */
 function bottlesOf_(month) {
   return readAll_("bottles").filter(b => String(b.date).slice(0, 7) === month && !isTrue_(b.deleted))
@@ -383,7 +383,7 @@ function cellMins_(val, S) {
 function computePay_(month) {
   const S = getSettings_();
   const prem = S.nightPremium === undefined ? 0.25 : +S.nightPremium;
-  const tax = S.saleTax === undefined ? 0.1 : +S.saleTax;
+  const tax = +S.saleTax || 0;
   const staff = readAll_("staff");
   const tcs = readAll_("timecards").filter(r => r.month === month);
   const sh = readAll_("shifts").find(r => r.month === month);
