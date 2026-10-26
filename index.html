@@ -577,7 +577,10 @@ function vPay(){
 function vAdmin(){
   if(!Store.isAdmin) return `<section class="card"><h2>経営者用ログイン</h2><p class="note">暗証番号を入れると、このLINEアカウントが管理者として登録されます（次回から入力不要）。</p><form class="f" id="pinf" style="margin-top:8px"><label>暗証番号<input type="password" name="pin" id="pinInput" inputmode="numeric" autocomplete="off"></label><div class="err" id="perr"></div><button class="btn" ${state.busy?"disabled":""}>ログイン</button></form></section>`;
   const tabs=[["cal","シフト作成"],["tc","勤怠"],["pay","お給料"],["wishes","希望一覧"],["staff","スタッフ"],["settings","設定"]];
-  const verWarn = Store.serverVersion!==SERVER_VERSION ? `<div class="warnbox" style="margin-bottom:10px"><b>Apps Script が古い版です。</b>画面は ${SERVER_VERSION}、サーバーは ${Store.serverVersion||"版情報なし（再デプロイ前）"}。スプレッドシート→拡張機能→Apps Script で最新のコードを貼り、「デプロイを管理」→ 鉛筆 →「新バージョン」→ デプロイ をしてください。</div>` : "";
+  // 版がずれたとき：画面のほうが古ければ開き直し、サーバーのほうが古ければ反映し直し
+  const verWarn = Store.serverVersion===SERVER_VERSION ? "" : (Store.serverVersion||"") > SERVER_VERSION
+    ? `<div class="warnbox" style="margin-bottom:10px"><b>この画面が古いままです。</b>いったん閉じて、数分おいてから開き直してください（パソコンなら ⌘＋shift＋R）。画面 ${SERVER_VERSION}／サーバー ${esc(Store.serverVersion)}</div>`
+    : `<div class="warnbox" style="margin-bottom:10px"><b>サーバー（Apps Script）が古い版です。</b>画面 ${SERVER_VERSION}／サーバー ${esc(Store.serverVersion||"版情報なし")}。Claude に「シフト表のサーバーを反映し直して」と伝えてください。</div>`;
   return `<nav class="tabs">${tabs.map(([k,l])=>`<button data-act="atab" data-v="${k}" class="${state.atab===k?"on":""}">${l}</button>`).join("")}</nav>${verWarn}
   ${({cal:vAdminCal,tc:vTcAdmin,pay:vPay,wishes:vWishList,staff:vStaffAdmin,settings:vSettings})[state.atab]()}`;
 }
