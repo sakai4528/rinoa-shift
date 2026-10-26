@@ -3,7 +3,9 @@
  *
  * - データはこのスクリプトに紐づくスプレッドシートに保存します（シートは自動で作られます）
  * - フロント（web/index.html）から POST された JSON を受け取り、LINE のアクセストークンで本人確認してから処理します
- * - シフト公開・締切前・退勤忘れの LINE 通知を Messaging API で送ります
+ * - シフト公開・締切前・退勤忘れ・前日（出勤の前の日のお昼12時）の LINE 通知を Messaging API で送ります
+ * - 時給・夜10時からの割増・ボトル歩合からお給料の見込みを出し、「payroll」シートに書きます（経営ボードが読む）
+ * - 営業日は朝6時で切り替え（夜中1時の退勤も前の日の勤務として記録）
  *
  * 初回セットアップ（README の手順どおり）
  *   1. スクリプトのプロパティに LIFF_CHANNEL_ID / MESSAGING_TOKEN / LIFF_URL を入れる
@@ -12,7 +14,7 @@
  *   4. デプロイ → 新しいデプロイ → ウェブアプリ（実行ユーザー: 自分 / アクセス: 全員）
  */
 
-const VERSION = "2026-10-26.5";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
+const VERSION = "2026-10-27.1";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
 const TZ = "Asia/Tokyo";
 const PROP = PropertiesService.getScriptProperties();
 
@@ -24,20 +26,26 @@ const DEFAULT_SETTINGS = {
   tcUnit: 30, tcMode: "nearest",
   notifyWish: true,
   phonePunch: false,     // スマホ（LINE）からの打刻を許可するか。標準は店舗端末（iPad）のみ
-  kioskPin: true         // 店舗端末での打刻に本人の暗証番号を求める
+  kioskPin: true,        // 店舗端末での打刻に本人の暗証番号を求める
+  remind: true,          // 出勤の前の日のお昼12時に本人へ知らせる
+  nightPremium: 0.25,    // 夜10時〜朝5時の割増
+  saleKinds: ["シャンパン", "ワイン"]
 };
+const DAY_START_HOUR = 6;   // 朝6時までは前の日の営業として扱う
 
 const SHEETS = {
   settings:  ["key", "value"],
-  staff:     ["id", "name", "short", "emp", "order", "active", "userId", "note", "createdAt", "pin"],
+  staff:     ["id", "name", "short", "emp", "order", "active", "userId", "note", "createdAt", "pin", "wage", "rate"],
   shifts:    ["month", "status", "publishedAt", "cells"],
   wishes:    ["month", "staffId", "days", "memo", "updatedAt"],
   timecards: ["month", "staffId", "days"],
   admins:    ["userId", "name", "addedAt"],
   devices:   ["id", "name", "key", "createdAt", "lastSeen"],
-  log:       ["at", "userId", "action", "detail"]
+  log:       ["at", "userId", "action", "detail"],
+  bottles:   ["id", "date", "staffId", "kind", "item", "price", "qty", "checked", "deleted", "by", "createdAt"],
+  payroll:   ["month", "fixed", "variable", "total", "hours", "salesTotal", "basis", "updatedAt", "detail"]
 };
-const JSON_COLS = { settings: ["value"], shifts: ["cells"], wishes: ["days"], timecards: ["days"] };
+const JSON_COLS = { settings: ["value"], shifts: ["cells"], wishes: ["days"], timecards: ["days"], payroll: ["detail"] };
 
 /* ============================================================
    HTTP 入口
@@ -106,12 +114,14 @@ function handle_(action, data, auth) {
 
   switch (action) {
     case "bootstrap": {
+      if (isAdmin) ensureTriggers_();
       return {
         version: VERSION,
         profile: { userId: auth.userId, name: auth.name },
         settings: publicSettings_(settings),
         staff: staff.map(s => publicStaff_(s, isAdmin)),
         me: me ? publicStaff_(me, true) : null,
+        bizToday: bizDate_(),
         isAdmin,
         devices: isAdmin ? readAll_("devices").map(d => ({ id: d.id, name: d.name, key: d.key, createdAt: d.createdAt, lastSeen: d.lastSeen })) : [],
         liffUrl: PROP.getProperty("LIFF_URL") || "",
@@ -216,6 +226,8 @@ function handle_(action, data, auth) {
         id: String(s.id), name: String(s.name).trim().slice(0, 20), short: String(s.short || "").slice(0, 4), emp: String(s.emp || ""),
         order: +s.order || 99, active: s.active !== false, note: String(s.note || "").slice(0, 100), userId: s.userId !== undefined ? s.userId : (prev.userId || "")
       });
+      if (s.wage !== undefined) { const w = Math.round(+s.wage || 0); if (w < 0 || w > 100000) throw new Error("bad_wage"); row.wage = w; }
+      if (s.rate !== undefined) { const r = +s.rate || 0; if (r < 0 || r > 1) throw new Error("bad_rate"); row.rate = r; }
       upsert_("staff", ["id"], row);
       log_(auth, "upsertStaff", row.name);
       return { staff: readAll_("staff").map(x => publicStaff_(x, true)) };
@@ -280,9 +292,170 @@ function handle_(action, data, auth) {
       return { timecard: doc };
     }
 
+    /* ---------- ボトル売上（歩合のもと） ---------- */
+    case "getBottles": {
+      const month = ym_(data.month);
+      const sid = (isAdmin && !data.staffId) ? null : ((isAdmin && data.staffId) ? data.staffId : (me && me.id));
+      if (!isAdmin && !sid) throw new Error("not_registered");
+      return { bottles: bottlesOf_(month).filter(b => !sid || b.staffId === sid) };
+    }
+    case "addBottle": {
+      const sid = (isAdmin && data.staffId) ? String(data.staffId) : (me && me.id);
+      if (!sid) throw new Error("not_registered");
+      const date = String(data.date || "");
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error("bad_date");
+      if (date > bizDate_()) throw new Error("future_date");
+      if (!isAdmin && date < addDays_(bizDate_(), -40)) throw new Error("too_old");
+      if ((settings.saleKinds || DEFAULT_SETTINGS.saleKinds).indexOf(data.kind) < 0) throw new Error("bad_kind");
+      const price = Math.round(+data.price || 0), qty = Math.round(+data.qty || 1);
+      if (!(price > 0 && price < 10000000)) throw new Error("bad_price");
+      if (!(qty >= 1 && qty <= 50)) throw new Error("bad_qty");
+      const b = { id: "b_" + Date.now().toString(36), date, staffId: sid, kind: data.kind, item: String(data.item || "").trim().slice(0, 40), price, qty, checked: false, deleted: false, by: auth.userId, createdAt: nowStr_() };
+      upsert_("bottles", ["id"], b);
+      log_(auth, "addBottle", date + " " + sid + " " + price + "x" + qty);
+      return { bottle: b };
+    }
+    case "updateBottle": {
+      const b = readAll_("bottles").find(x => x.id === data.id); if (!b) throw new Error("bad_bottle");
+      const own = me && b.staffId === me.id;
+      if (!isAdmin && (!own || isTrue_(b.checked))) throw new Error("bottle_locked");
+      if (data.remove) b.deleted = true;
+      if (data.checked !== undefined) { needAdmin(); b.checked = !!data.checked; }
+      upsert_("bottles", ["id"], b);
+      log_(auth, "updateBottle", b.id + (data.remove ? " remove" : "") + (data.checked !== undefined ? " checked=" + !!data.checked : ""));
+      return { bottle: b };
+    }
+
+    /* ---------- お給料の見込み（経営ボードへも書く） ---------- */
+    case "getPay": {
+      needAdmin();
+      return { pay: savePayroll_(ym_(data.month)) };
+    }
+
     default:
       throw new Error("unknown_action");
   }
+}
+
+/* ============================================================
+   お給料の見込み
+   時間：打刻（丸め後・休憩を引く）があればそれ、なければ公開済みシフトの予定
+   金額：時給×時間 ＋ 時給×割増×夜10時〜朝5時の時間 ＋ ボトル売上（税込）×歩合
+   ============================================================ */
+function bottlesOf_(month) {
+  return readAll_("bottles").filter(b => String(b.date).slice(0, 7) === month && !isTrue_(b.deleted))
+    .map(b => ({ id: b.id, date: b.date, staffId: b.staffId, kind: b.kind, item: b.item || "", price: +b.price || 0, qty: +b.qty || 1, checked: isTrue_(b.checked) }))
+    .sort((a, b) => a.date < b.date ? 1 : a.date > b.date ? -1 : 0);
+}
+function hm2m_(hm) { const p = String(hm || "").split(":"); return (+p[0]) * 60 + (+p[1] || 0); }
+function roundM_(m, kind, S) {
+  const u = +S.tcUnit || 30, mode = S.tcMode || "nearest";
+  if (mode === "floor") return Math.floor(m / u) * u;
+  if (mode === "ceil") return Math.ceil(m / u) * u;
+  if (mode === "favor") return kind === "in" ? Math.ceil(m / u) * u : Math.floor(m / u) * u;
+  return Math.round(m / u) * u;
+}
+// 開始・終了（分。終了が前なら翌日）から、全体の分と夜10時〜朝5時の分
+function spanMins_(a, b, brk) {
+  if (b <= a) b += 1440;
+  const total = Math.max(0, b - a - (+brk || 0));
+  let night = 0;
+  [[22 * 60, 29 * 60], [-2 * 60, 5 * 60]].forEach(w => { night += Math.max(0, Math.min(b, w[1]) - Math.max(a, w[0])); });
+  return { total, night: Math.min(night, total) };
+}
+function recMins_(rec, S) {
+  if (!rec || !rec.in || !rec.out) return null;
+  const a = roundM_(hm2m_(rec.in.slice(11, 16)), "in", S);
+  let b = roundM_(hm2m_(rec.out.slice(11, 16)), "out", S);
+  const dd = Math.round((new Date(rec.out.slice(0, 10) + "T00:00:00") - new Date(rec.in.slice(0, 10) + "T00:00:00")) / 86400000);
+  b += Math.max(0, dd) * 1440;
+  if (dd <= 0 && b <= a) b += 1440;
+  return spanMins_(a, b, rec.brk);
+}
+function cellMins_(val, S) {
+  const base = String(val || "").split("|")[0];
+  if (!base || base === "OFF") return null;
+  let s = S.openStart, e = S.openEnd;
+  if (base.indexOf("C:") === 0) { const p = base.slice(2).split("-"); s = p[0]; e = p[1]; }
+  return spanMins_(hm2m_(s), hm2m_(e), 0);
+}
+function computePay_(month) {
+  const S = getSettings_();
+  const prem = S.nightPremium === undefined ? 0.25 : +S.nightPremium;
+  const staff = readAll_("staff");
+  const tcs = readAll_("timecards").filter(r => r.month === month);
+  const sh = readAll_("shifts").find(r => r.month === month);
+  const cells = sh && sh.status === "published" ? (sh.cells || {}) : {};
+  const bottles = bottlesOf_(month);
+  const y = +month.slice(0, 4), m = +month.slice(5, 7), n = new Date(y, m, 0).getDate();
+  const rows = staff.map(s => {
+    const doc = tcs.find(r => r.staffId === s.id) || { days: {} };
+    let days = 0, mins = 0, night = 0, planMins = 0;
+    for (let d = 1; d <= n; d++) {
+      let w = recMins_((doc.days || {})[d], S), plan = false;
+      if (!w) { w = cellMins_(cells[d + "_" + s.id], S); plan = !!w; }
+      if (!w || !w.total) continue;
+      days++; mins += w.total; night += w.night; if (plan) planMins += w.total;
+    }
+    const wage = +s.wage || 0, rate = +s.rate || 0;
+    const mine = bottles.filter(b => b.staffId === s.id);
+    const salesTotal = mine.reduce((t, b) => t + b.price * b.qty, 0);
+    const wagePay = Math.round(wage * mins / 60 + wage * prem * night / 60);
+    const commission = Math.round(salesTotal * rate);
+    return { staffId: s.id, name: s.name, days, hours: Math.round(mins / 6) / 10, nightHours: Math.round(night / 6) / 10, planHours: Math.round(planMins / 6) / 10,
+      wage, rate, wagePay, salesTotal, bottles: mine.reduce((t, b) => t + b.qty, 0), commission, total: wagePay + commission };
+  }).filter(r => r.days || r.salesTotal);
+  const sum = k => rows.reduce((t, r) => t + r[k], 0);
+  return { month, staff: rows, fixed: sum("wagePay"), variable: sum("commission"), total: sum("total"), hours: Math.round(sum("hours") * 10) / 10, salesTotal: sum("salesTotal"),
+    noWage: rows.filter(r => r.hours && !r.wage).map(r => r.name), nightPremium: prem, basis: "シフト表からの見込み（打刻があれば打刻、なければ公開済みシフトの予定）。freeeの給与とは別" };
+}
+// 経営ボード（rinoa-order）が読むシート。fixed＝時給の分（固定費）、variable＝歩合の分（変動費）
+function savePayroll_(month) {
+  const p = computePay_(month);
+  upsert_("payroll", ["month"], { month, fixed: p.fixed, variable: p.variable, total: p.total, hours: p.hours, salesTotal: p.salesTotal, basis: p.basis, updatedAt: nowStr_(),
+    detail: p.staff.map(r => ({ name: r.name, hours: r.hours, nightHours: r.nightHours, wagePay: r.wagePay, salesTotal: r.salesTotal, commission: r.commission, total: r.total })) });
+  return p;
+}
+function payrollJob() {
+  const now = new Date();
+  [fmt_(now, "yyyy-MM"), fmt_(new Date(now.getFullYear(), now.getMonth() - 1, 1), "yyyy-MM")].forEach(m => { try { savePayroll_(m); } catch (e) { Logger.log("payroll " + m + " " + e); } });
+}
+
+/* ============================================================
+   前の日のお知らせ（毎日12時）：明日のシフト（公開済み）がある人へ1人ずつ
+   ============================================================ */
+function remindJob() {
+  const settings = getSettings_();
+  if (settings.remind === false) return;
+  const t = new Date(Date.now() + 86400000);
+  const month = fmt_(t, "yyyy-MM"), day = String(+fmt_(t, "dd")), label = (+fmt_(t, "M")) + "/" + day + "(" + "日月火水木金土"[t.getDay()] + ")";
+  const sh = readAll_("shifts").find(r => r.month === month);
+  if (!sh || sh.status !== "published") return;
+  const staff = readAll_("staff").filter(s => s.active !== false && s.userId);
+  let sent = 0;
+  staff.forEach(s => {
+    const base = String((sh.cells || {})[day + "_" + s.id] || "").split("|")[0];
+    if (!base || base === "OFF") return;
+    let st = settings.openStart, en = settings.openEnd;
+    if (base.indexOf("C:") === 0) { const p = base.slice(2).split("-"); st = p[0]; en = p[1]; }
+    const tags = String((sh.cells || {})[day + "_" + s.id] || "").split("|")[1] || "";
+    pushTo_([s.userId], `${s.name}さん、お疲れさまです。\n明日 ${label} は ${dz_(st)}〜${hm2m_(en) <= hm2m_(st) ? "夜中" : ""}${dz_(en)} の出勤です。${tags.indexOf("d") >= 0 ? "（同伴出勤）" : ""}\nよろしくお願いします。\n\n${settings.name}`);
+    sent++;
+  });
+  log_({ userId: "system" }, "remind", month + "/" + day + " " + sent + "人");
+}
+function dz_(hm) { return String(hm || "").replace(/^0/, ""); }
+
+/* トリガー（毎朝9:05 締切・退勤忘れ・お給料の写し／毎日12時 前日のお知らせ）がなければ作る。管理者が開いたときに確認 */
+function ensureTriggers_() {
+  try {
+    const cache = CacheService.getScriptCache();
+    if (cache.get("triggers_ok")) return;
+    const have = ScriptApp.getProjectTriggers().map(t => t.getHandlerFunction());
+    if (have.indexOf("dailyJob") < 0) ScriptApp.newTrigger("dailyJob").timeBased().everyDays(1).atHour(9).nearMinute(5).create();
+    if (have.indexOf("remindJob") < 0) ScriptApp.newTrigger("remindJob").timeBased().everyDays(1).atHour(12).nearMinute(0).create();
+    cache.put("triggers_ok", "1", 21600);
+  } catch (e) { Logger.log("ensureTriggers " + e); }
 }
 
 /* ============================================================
@@ -294,7 +467,7 @@ function verifyDevice_(key) {
   return dev;
 }
 function todayStatus_(staff) {
-  const now = new Date(), today = fmt_(now, "yyyy-MM-dd"), month = today.slice(0, 7), day = String(+today.slice(8));
+  const now = new Date(), today = bizDate_(), month = today.slice(0, 7), day = String(+today.slice(8));
   const tcs = readAll_("timecards").filter(r => r.month === month);
   const shift = readAll_("shifts").find(r => r.month === month);
   const out = {};
@@ -330,7 +503,7 @@ function handleDevice_(action, data, device) {
       const r = punch_(s, data, "kiosk:" + device.id);
       log_({ userId: "device:" + device.id }, "kioskPunch:" + data.type, s.name);
       const today = todayStatus_(staff);
-      const day = String(+fmt_(new Date(), "dd")); const rec = (r.timecard.days || {})[day];
+      const day = String(+bizDate_().slice(8)); const rec = (r.timecard.days || {})[day];
       if (today.status[s.id]) { today.status[s.id].in = rec && rec.in ? rec.in.slice(11, 16) : ""; today.status[s.id].out = rec && rec.out ? rec.out.slice(11, 16) : ""; today.status[s.id].brk = rec ? (+rec.brk || 0) : 0; }
       return Object.assign(r, { today });
     }
@@ -343,7 +516,7 @@ function pinHash_(sid, pin) {
 /** 打刻の本体（スマホ・店舗端末 共通） */
 function punch_(staffRow, data, via) {
   const now = new Date();
-  const today = fmt_(now, "yyyy-MM-dd");
+  const today = bizDate_(now);   // 夜中1時の退勤も、前の日の勤務として記録する
   const month = today.slice(0, 7);
   const stamp = fmt_(now, "yyyy-MM-dd'T'HH:mm");
   let tcMonth = month, day = String(+today.slice(8));
@@ -409,7 +582,8 @@ function monthsFor_(months, me, isAdmin) {
 function publicSettings_(s) { const o = Object.assign({}, s); delete o.pin; return o; }
 function publicStaff_(s, full) {
   const o = { id: s.id, name: s.name, short: s.short || "", emp: s.emp || "", order: +s.order || 99, active: s.active !== false && s.active !== "FALSE", linked: !!s.userId, hasPin: !!s.pin };
-  if (full) { o.note = s.note || ""; o.userId = s.userId || ""; }
+  o.hasRate = (+s.rate || 0) > 0;
+  if (full) { o.note = s.note || ""; o.userId = s.userId || ""; o.wage = +s.wage || 0; o.rate = +s.rate || 0; }
   return o;
 }
 function sanitizeSettings_(s) {
@@ -428,6 +602,8 @@ function sanitizeSettings_(s) {
   if (s.notifyWish !== undefined) o.notifyWish = !!s.notifyWish;
   if (s.phonePunch !== undefined) o.phonePunch = !!s.phonePunch;
   if (s.kioskPin !== undefined) o.kioskPin = !!s.kioskPin;
+  if (s.remind !== undefined) o.remind = !!s.remind;
+  if (s.nightPremium !== undefined) o.nightPremium = Math.min(1, Math.max(0, +s.nightPremium || 0));
   return o;
 }
 
@@ -477,6 +653,9 @@ function dailyJob() {
   const tcs = readAll_("timecards").filter(r => r.month === yYm);
   const forgot = staff.filter(s => { const t = tcs.find(r => r.staffId === s.id); const rec = t && t.days && t.days[yDay]; return rec && rec.in && !rec.out; });
   forgot.forEach(s => pushTo_([s.userId], `【${settings.name}】昨日（${+fmt_(y, "M")}/${+yDay}）の退勤が押されていません。「タイムカード」を開いて退勤時刻を入れてください。${url ? "\n" + url : ""}`));
+
+  // お給料の見込みを payroll シートへ（経営ボード用）
+  payrollJob();
 }
 
 /* ============================================================
@@ -491,9 +670,10 @@ function setup() {
   Logger.log("setup done. properties: " + JSON.stringify({ LIFF_CHANNEL_ID: !!PROP.getProperty("LIFF_CHANNEL_ID"), MESSAGING_TOKEN: !!PROP.getProperty("MESSAGING_TOKEN"), LIFF_URL: PROP.getProperty("LIFF_URL") }));
 }
 function setupTriggers() {
-  ScriptApp.getProjectTriggers().forEach(t => { if (t.getHandlerFunction() === "dailyJob") ScriptApp.deleteTrigger(t); });
+  ScriptApp.getProjectTriggers().forEach(t => { if (["dailyJob", "remindJob"].indexOf(t.getHandlerFunction()) >= 0) ScriptApp.deleteTrigger(t); });
   ScriptApp.newTrigger("dailyJob").timeBased().everyDays(1).atHour(9).nearMinute(5).create();
-  Logger.log("daily trigger set (09:05 JST)");
+  ScriptApp.newTrigger("remindJob").timeBased().everyDays(1).atHour(12).nearMinute(0).create();
+  Logger.log("triggers set (dailyJob 09:05 / remindJob 12:00 JST)");
 }
 /** 通知のテスト：管理者全員に1通送る */
 function testPush() {
@@ -584,7 +764,7 @@ function migrate_() {
   Object.keys(SHEETS).forEach(name => {
     const sh = getSheet_(name);
     sh.getRange(1, 1, Math.max(sh.getMaxRows(), 2), SHEETS[name].length).setNumberFormat("@");
-    const keys = { settings: ["key"], staff: ["id"], shifts: ["month"], wishes: ["month", "staffId"], timecards: ["month", "staffId"], admins: ["userId"], devices: ["id"] }[name];
+    const keys = { settings: ["key"], staff: ["id"], shifts: ["month"], wishes: ["month", "staffId"], timecards: ["month", "staffId"], admins: ["userId"], devices: ["id"], bottles: ["id"], payroll: ["month"] }[name];
     if (!keys) return;
     const rows = readAll_(name);
     const merged = {}; const order = [];
@@ -607,4 +787,8 @@ function migrate_() {
 /* ---------- ユーティリティ ---------- */
 function fmt_(d, p) { return Utilities.formatDate(d, TZ, p); }
 function nowStr_() { return fmt_(new Date(), "yyyy-MM-dd'T'HH:mm:ss"); }
+// 営業日（朝6時までは前の日）
+function bizDate_(d) { return fmt_(new Date((d || new Date()).getTime() - DAY_START_HOUR * 3600000), "yyyy-MM-dd"); }
+function addDays_(ymd, n) { const p = ymd.split("-").map(Number); return fmt_(new Date(p[0], p[1] - 1, p[2] + n, 12), "yyyy-MM-dd"); }
+function isTrue_(v) { return v === true || v === "TRUE" || v === "true"; }
 function ym_(s) { if (!/^\d{4}-\d{2}$/.test(String(s || ""))) throw new Error("bad_month"); return String(s); }
