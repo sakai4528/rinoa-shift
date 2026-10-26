@@ -215,7 +215,7 @@ const CONFIG = {
 /* ============================================================
    共通
    ============================================================ */
-const SERVER_VERSION="2026-10-27.5";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
+const SERVER_VERSION="2026-10-27.6";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
 const TC_MODES={nearest:"四捨五入（15分未満は切り捨て、15分以上は30分扱い）",floor:"すべて切り捨て",ceil:"すべて切り上げ",favor:"出勤は切り上げ・退勤は切り捨て"};
 const WD = ["日","月","火","水","木","金","土"];
 const pad = n => String(n).padStart(2,"0");
@@ -700,7 +700,7 @@ function vSettings(){
   </form></section>
   <section class="card"><h2>LINE公式アカウント<small>リノア シフト表</small></h2>
     <p class="note">前の日のお知らせと、トーク画面の下のメニュー（タイムカード／シフト表／希望を出す）に使います。</p>
-    <div id="lineStat" class="note" style="margin:8px 0">${state.lineStat?esc(state.lineStat):""}</div>
+    ${state.lineStat?`<div id="lineStat" class="warnbox" style="margin:8px 0;font-size:15px"><b>${esc(state.lineStat)}</b></div>`:""}
     <div class="row"><button class="btn ghost sm" data-act="lineCheck">つながっているか確かめる</button><button class="btn sm" data-act="richMenu" ${state.busy?"disabled":""}>トーク画面のメニューを付ける</button></div>
   </section>
   <section class="card"><h2>店舗端末（iPad）<small>${Store.devices.length}台</small></h2>
@@ -738,8 +738,8 @@ app.addEventListener("click", async e=>{
     case "bKind": keepBForm(); state.bForm.kind=t.dataset.v; go(); break;
     case "bDel": { if(t.dataset.sure!=="1"){ t.dataset.sure="1"; t.textContent="本当に消す"; break; } await busy(async()=>{ await Store.updateBottle(t.dataset.id,{remove:true}); toast("消しました"); }); break; }
     case "bCheck": await busy(async()=>{ await Store.updateBottle(t.dataset.id,{checked:t.checked}); }); break;
-    case "lineCheck": await busy(async()=>{ const j=await Store.api("lineStatus",{}); state.lineStat= j.ok?`つながっています：${j.name}（${j.basicId}）`: j.reason==="no_token"?"まだ鍵が入っていません（Apps Script の「スクリプト プロパティ」の MESSAGING_TOKEN）":"鍵が正しくないようです。入れ直してください"; }); break;
-    case "richMenu": await busy(async()=>{ await Store.api("setupRichMenu",{}); state.lineStat="トーク画面の下にメニューを付けました（LINEを開き直すと出ます）"; toast("メニューを付けました"); }); break;
+    case "lineCheck": state.lineStat="確かめています…"; go(); await busy(async()=>{ try{ const j=await Store.api("lineStatus",{}); state.lineStat= j.connected?`✅ つながっています：${j.name}（${j.basicId}）`: j.reason==="no_token"?"❌ まだ鍵が入っていません（Apps Script の「スクリプト プロパティ」の MESSAGING_TOKEN）":`❌ 鍵が正しくないようです。入れ直してください（${j.code||""}）`; }catch(e){ state.lineStat="❌ "+errMsg(e); } toast(state.lineStat); }); break;
+    case "richMenu": state.lineStat="メニューを付けています…（10秒ほど）"; go(); await busy(async()=>{ try{ await Store.api("setupRichMenu",{}); state.lineStat="✅ トーク画面の下にメニューを付けました（LINEを開き直すと出ます）"; }catch(e){ state.lineStat="❌ "+errMsg(e); } toast(state.lineStat); }); break;
     case "payReload": delete Store.pay[state.month]; delete Store.failed["p:"+state.month]; delete Store.bottles[state.month+"|"]; delete Store.failed["b:"+state.month+"|"]; go(); break;
     case "selDay": state.selDay = state.selDay===+t.dataset.d?null:+t.dataset.d; go(); break;
     case "openDay": state.sheetDay=+t.dataset.d; go(); break;

@@ -14,7 +14,7 @@
  *   4. デプロイ → 新しいデプロイ → ウェブアプリ（実行ユーザー: 自分 / アクセス: 全員）
  */
 
-const VERSION = "2026-10-27.5";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
+const VERSION = "2026-10-27.6";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
 const TZ = "Asia/Tokyo";
 const PROP = PropertiesService.getScriptProperties();
 
@@ -341,11 +341,12 @@ function handle_(action, data, auth) {
     case "lineStatus": {
       needAdmin();
       const token = PROP.getProperty("MESSAGING_TOKEN");
-      if (!token) return { ok: false, reason: "no_token" };
-      const res = UrlFetchApp.fetch("https://api.line.me/v2/bot/info", { headers: { Authorization: "Bearer " + token }, muteHttpExceptions: true });
-      if (res.getResponseCode() !== 200) return { ok: false, reason: "bad_token" };
+      // ok は通信の成否に使うので、つながりの結果は connected で返す
+      if (!token) return { connected: false, reason: "no_token" };
+      const res = UrlFetchApp.fetch("https://api.line.me/v2/bot/info", { headers: { Authorization: "Bearer " + String(token).trim() }, muteHttpExceptions: true });
+      if (res.getResponseCode() !== 200) return { connected: false, reason: "bad_token", code: res.getResponseCode() };
       const j = JSON.parse(res.getContentText());
-      return { ok: true, name: j.displayName || "", basicId: j.basicId || "" };
+      return { connected: true, name: j.displayName || "", basicId: j.basicId || "" };
     }
 
     /* ---------- お給料の見込み（経営ボードへも書く） ---------- */
@@ -452,7 +453,7 @@ function payrollJob() {
 const LIFF_BASE = "https://liff.line.me/2012191949-slfaXSbA";
 const RICHMENU_IMAGE = "https://sakai4528.github.io/rinoa-shift/docs/richmenu.png";
 function setupRichMenu_() {
-  const token = PROP.getProperty("MESSAGING_TOKEN");
+  const token = String(PROP.getProperty("MESSAGING_TOKEN") || "").trim();
   if (!token) throw new Error("no_token");
   const H = { Authorization: "Bearer " + token };
   const call = (method, url, payload, contentType) => {
@@ -666,7 +667,7 @@ function sanitizeSettings_(s) {
    LINE 通知（Messaging API）
    ============================================================ */
 function pushTo_(userIds, text) {
-  const token = PROP.getProperty("MESSAGING_TOKEN");
+  const token = String(PROP.getProperty("MESSAGING_TOKEN") || "").trim();
   const ids = (userIds || []).filter(Boolean);
   if (!token || !ids.length) return;
   for (let i = 0; i < ids.length; i += 500) {
