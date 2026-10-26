@@ -215,7 +215,7 @@ const CONFIG = {
 /* ============================================================
    共通
    ============================================================ */
-const SERVER_VERSION="2026-10-27.6";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
+const SERVER_VERSION="2026-10-27.7";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
 const TC_MODES={nearest:"四捨五入（15分未満は切り捨て、15分以上は30分扱い）",floor:"すべて切り捨て",ceil:"すべて切り上げ",favor:"出勤は切り上げ・退勤は切り捨て"};
 const WD = ["日","月","火","水","木","金","土"];
 const pad = n => String(n).padStart(2,"0");
@@ -789,22 +789,23 @@ app.addEventListener("change", e=>{
 app.addEventListener("input", e=>{ if(e.target.id==="wMemo"){ state.draftWish.memo=e.target.value; state.draftDirty=true; } });
 app.addEventListener("submit", async e=>{
   e.preventDefault(); const f=e.target, fd=new FormData(f), S=Store.settings;
-  if(f.id==="btlf"){ keepBForm(); const b=state.bForm, m=me(); const price=Math.round(+b.price||0);
+  const fid=f.getAttribute("id");   // f.id だと name="id" の欄（スタッフ編集の隠し欄）を拾ってしまい保存されなかった
+  if(fid==="btlf"){ keepBForm(); const b=state.bForm, m=me(); const price=Math.round(+b.price||0);
     if(!price){ toast("値段を入れてください"); return; }
     if(!confirm(`${+b.date.slice(5,7)}/${+b.date.slice(8)} ${b.kind}${b.item?"（"+b.item+"）":""} ${yen(price)} × ${b.qty}本${state.proxyId?"（"+m.name+"さん）":""}\nで記録します。よろしいですか？`)) return;
     await busy(async()=>{ await Store.addBottle({date:b.date,kind:b.kind,item:b.item,price,qty:+b.qty||1,staffId:m.id}); state.bForm={...b,item:"",price:"",qty:1}; state.bMonth=b.date.slice(0,7); toast("記録しました"); }); }
-  if(f.id==="regf"){ const name=(fd.get("name")||"").trim(); if(!name){ $("#regerr").textContent="お名前を入れてください"; return; } await busy(async()=>{ await Store.register(name); toast(`${name}さん、登録しました`); }); }
-  if(f.id==="fixreq"){ const d=+f.dataset.d, text=($("#fixText")?.value||"").trim(); if(!text){ toast("内容を書いてください"); return; } await busy(async()=>{ await Store.requestFix(state.tcMonth,d,text); state.fixReqDay=null; toast("経営者に送りました"); }); }
-  if(f.id==="pinset"){ const pin=String(fd.get("pin")||"").trim(); if(!/^\d{4,6}$/.test(pin)){ toast("暗証番号は4〜6桁の数字にしてください"); return; } await busy(async()=>{ await Store.setPin(pin); toast("暗証番号を設定しました。店舗iPadで使えます"); }); }
-  if(f.id==="devf"){ const name=String(fd.get("name")||"").trim()||"店舗iPad"; await busy(async()=>{ await Store.createDevice(name); toast("端末コードを発行しました"); }); }
-  if(f.id==="pinf"){ await busy(async()=>{ await Store.adminLogin(String(fd.get("pin")||"")); state.role="admin"; toast("管理者として登録しました"); }); }
-  if(f.id==="stf"){
+  if(fid==="regf"){ const name=(fd.get("name")||"").trim(); if(!name){ $("#regerr").textContent="お名前を入れてください"; return; } await busy(async()=>{ await Store.register(name); toast(`${name}さん、登録しました`); }); }
+  if(fid==="fixreq"){ const d=+f.dataset.d, text=($("#fixText")?.value||"").trim(); if(!text){ toast("内容を書いてください"); return; } await busy(async()=>{ await Store.requestFix(state.tcMonth,d,text); state.fixReqDay=null; toast("経営者に送りました"); }); }
+  if(fid==="pinset"){ const pin=String(fd.get("pin")||"").trim(); if(!/^\d{4,6}$/.test(pin)){ toast("暗証番号は4〜6桁の数字にしてください"); return; } await busy(async()=>{ await Store.setPin(pin); toast("暗証番号を設定しました。店舗iPadで使えます"); }); }
+  if(fid==="devf"){ const name=String(fd.get("name")||"").trim()||"店舗iPad"; await busy(async()=>{ await Store.createDevice(name); toast("端末コードを発行しました"); }); }
+  if(fid==="pinf"){ await busy(async()=>{ await Store.adminLogin(String(fd.get("pin")||"")); state.role="admin"; toast("管理者として登録しました"); }); }
+  if(fid==="stf"){
     const id=fd.get("id")||("s_"+Date.now().toString(36)); const prev=Store.staff.find(s=>s.id===id)||{};
     const s={id,name:(fd.get("name")||"").trim(),short:(fd.get("short")||"").trim(),emp:fd.get("emp")||"",order:+fd.get("order")||99,active:!!fd.get("active"),note:fd.get("note")||"",wage:Math.round(+fd.get("wage")||0),rate:(+fd.get("rate")||0)/100};
     const newpin=String(fd.get("newpin")||"").trim();
     if(!s.name) return; await busy(async()=>{ await Store.upsertStaff(s); if(newpin){ if(!/^\d{4,6}$/.test(newpin)) throw new Error("bad_pin_format"); await Store.resetPin(s.id,newpin); } state.editStaff=null; toast(prev.id?"保存しました":"追加しました"); });
   }
-  if(f.id==="setf"){
+  if(fid==="setf"){
     const required=WD.map((_,i)=>+fd.get("req"+i)||0), closed=WD.map((_,i)=>fd.get("closed"+i)?i:-1).filter(i=>i>=0);
     const patch={name:(fd.get("name")||"").trim()||S.name,eyebrow:fd.get("eyebrow")||"",openStart:fd.get("openStart")||S.openStart,openEnd:fd.get("openEnd")||S.openEnd,deadlineDay:Math.min(28,Math.max(1,+fd.get("deadlineDay")||20)),required,closed,closedHol:!!fd.get("closedHol"),tcUnit:+fd.get("tcUnit")||30,tcMode:TC_MODES[fd.get("tcMode")]?fd.get("tcMode"):"nearest",notifyWish:!!fd.get("notifyWish"),phonePunch:!!fd.get("phonePunch"),kioskPin:!!fd.get("kioskPin"),remind:!!fd.get("remind"),notifyPublish:!!fd.get("notifyPublish"),notifyDeadline:!!fd.get("notifyDeadline")};
     const pin=String(fd.get("pin")||"").trim(); if(pin) patch.pin=pin;
