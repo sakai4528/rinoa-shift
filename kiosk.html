@@ -110,7 +110,7 @@ async function api(action,data,key){
   if(!j.ok) throw new Error(j.error||"error");
   return j;
 }
-const ERR={bad_device:"端末コードが違うか、無効になっています",pin_not_set:"暗証番号が未設定です。自分のLINEのアプリ「タイムカード」で設定してください",bad_pin:"暗証番号が違います",already_in:"すでに出勤しています",not_in:"出勤が押されていません",bad_response:"通信に失敗しました"};
+const ERR={undo_expired:"取り消せるのは打刻から15分以内です",not_out:"退勤はまだ押されていません",already_out:"退勤済みのため出勤は取り消せません",bad_device:"端末コードが違うか、無効になっています",pin_not_set:"暗証番号が未設定です。自分のLINEのアプリ「タイムカード」で設定してください",bad_pin:"暗証番号が違います",already_in:"すでに出勤しています",not_in:"出勤が押されていません",bad_response:"通信に失敗しました"};
 const errMsg=e=>ERR[String(e&&e.message||e)]||("エラー："+String(e&&e.message||e));
 
 async function load(){
@@ -157,13 +157,16 @@ function renderModal(){
   const x=D.today.status[s.id]||{}; const needPin=D.settings.kioskPin; const mode= x.out?"done": x.in?"out":"in";
   const pinUI = needPin?`<div class="pinbox">${[0,1,2,3,4,5].map(i=>`<i class="${i<S.pin.length?"on":""}"></i>`).join("")}</div>
     <div class="pad">${[1,2,3,4,5,6,7,8,9].map(n=>`<button type="button" data-k="${n}">${n}</button>`).join("")}<button type="button" class="fn" data-k="C">クリア</button><button type="button" data-k="0">0</button><button type="button" class="fn" data-k="B">←</button></div>`:"";
-  const action = mode==="done"?`<div class="note" style="text-align:center">本日は退勤済みです（${dropZero(x.in)}〜${dropZero(x.out)}）。修正は経営者に伝えてください。</div>`
-    : mode==="out"?`<div class="brk">休憩 <input type="number" id="brk" value="0" min="0" max="300" step="5" inputmode="numeric"> 分</div><button class="btn big out" id="go" ${S.busy?"disabled":""}>退　勤</button>`
+  const minsAgo=hm=>{ if(!hm) return 1e9; const [h,mi]=hm.split(":").map(Number); const n=new Date(); return (n.getHours()*60+n.getMinutes())-(h*60+mi); };
+  const undo = (mode==="out"&&minsAgo(x.in)<=15)?`<button class="btn ghost" id="undo" data-type="undoIn" style="width:100%">出勤を取り消す（押し間違い・${minsAgo(x.in)}分前）</button>`
+             : (mode==="done"&&minsAgo(x.out)<=15)?`<button class="btn ghost" id="undo" data-type="undoOut" style="width:100%">退勤を取り消す（押し間違い・${minsAgo(x.out)}分前）</button>`:"";
+  const action = mode==="done"?`<div class="note" style="text-align:center">本日は退勤済みです（${dropZero(x.in)}〜${dropZero(x.out)}）。${undo?"押し間違いなら暗証番号を入れて取り消せます。":"修正は経営者に伝えてください。"}</div>${undo}`
+    : mode==="out"?`<div class="brk">休憩 <input type="number" id="brk" value="0" min="0" max="300" step="5" inputmode="numeric"> 分</div><button class="btn big out" id="go" ${S.busy?"disabled":""}>退　勤</button>${undo}`
     : `<button class="btn big" id="go" ${S.busy?"disabled":""}>出　勤</button>`;
   return `<div class="ov" id="ov"><div class="md">
     <div class="who"><b>${esc(s.name)} さん</b><span>${x.in?`出勤 ${dropZero(x.in)}`:"未出勤"}${x.sched?"　"+esc(schedText(x.sched)):""}</span></div>
     ${mode!=="done"&&needPin?`<div class="note" style="text-align:center">${s.hasPin?"暗証番号を入力してください":"暗証番号が未設定です。自分のLINEのアプリ「タイムカード」で設定してから押してください"}</div>`:""}
-    ${mode!=="done"?pinUI:""}
+    ${(mode!=="done"||undo)?pinUI:""}
     ${action}
     <div class="row"><button class="btn ghost" id="cancel" style="flex:1">閉じる</button></div>
   </div></div>`;
@@ -172,17 +175,23 @@ function bindModal(){
   $("#cancel").onclick=()=>{ S.modal=null; render(); };
   $("#ov").onclick=e=>{ if(e.target.id==="ov"){ S.modal=null; render(); } };
   document.querySelectorAll(".pad button").forEach(b=>b.onclick=()=>{ const k=b.dataset.k; if(k==="C") S.pin=""; else if(k==="B") S.pin=S.pin.slice(0,-1); else if(S.pin.length<6) S.pin+=k; clearTimeout(idleT); idleT=setTimeout(()=>{S.modal=null;render();},45000); document.querySelectorAll(".pinbox i").forEach((el,i)=>el.classList.toggle("on",i<S.pin.length)); });
-  const go=$("#go"); if(go) go.onclick=async()=>{
-    const D=S.data, s=D.staff.find(x=>x.id===S.modal.id), x=D.today.status[s.id]||{}, type=x.in?"out":"in";
+  const doPunch=async(type,btn)=>{
+    const D=S.data, s=D.staff.find(x=>x.id===S.modal.id);
     if(D.settings.kioskPin && S.pin.length<4){ toast("暗証番号を入力してください","ng"); return; }
-    S.busy=true; go.disabled=true;
+    S.busy=true; btn.disabled=true;
     try{ const r=await api("kioskPunch",{staffId:s.id,type,pin:S.pin,brk:+($("#brk")?.value||0)}); S.data.today=r.today;
-      // 画面は、サーバーが書き込んだ本日の記録そのものから更新する（読み直しの遅れに左右されない）
-      const day=String(new Date().getDate()), rec=(r.timecard&&r.timecard.days||{})[day]; if(rec){ const st=S.data.today.status[s.id]||{}; S.data.today.status[s.id]={...st,in:rec.in?rec.in.slice(11,16):"",out:rec.out?rec.out.slice(11,16):"",brk:+rec.brk||0}; }
+      const day=String(new Date().getDate()), rec=(r.timecard&&r.timecard.days||{})[day]; const st=S.data.today.status[s.id]||{};
+      if(rec) S.data.today.status[s.id]={...st,in:rec.in?rec.in.slice(11,16):"",out:rec.out?rec.out.slice(11,16):"",brk:+rec.brk||0};
+      else if(type==="undoIn") S.data.today.status[s.id]={...st,in:"",out:"",brk:0};
       setTimeout(load,3000); S.modal=null; S.pin="";
-      toast(`${s.name} さん　${type==="in"?"出勤":"退勤"}しました`,"ok",`${dropZero(r.serverTime.slice(11))}　${type==="in"?"いってらっしゃい":"お疲れさまでした"}`); }
+      toast(type==="undoIn"?`${s.name} さん　出勤を取り消しました`:type==="undoOut"?`${s.name} さん　退勤を取り消しました`:`${s.name} さん　${type==="in"?"出勤":"退勤"}しました`,"ok",type.startsWith("undo")?"修正として記録しました":`${dropZero(r.serverTime.slice(11))}　${type==="in"?"いってらっしゃい":"お疲れさまでした"}`); }
     catch(e){ toast(errMsg(e),"ng"); S.pin=""; }
     S.busy=false; render();
+  };
+  const un=$("#undo"); if(un) un.onclick=()=>doPunch(un.dataset.type,un);
+  const go=$("#go"); if(go) go.onclick=async()=>{
+    const D=S.data, s=D.staff.find(x=>x.id===S.modal.id), x=D.today.status[s.id]||{}, type=x.in?"out":"in";
+    await doPunch(type,go);
   };
 }
 setInterval(()=>{ const el=$("#clk"); if(el){ const n=new Date(); el.textContent=`${pad(n.getHours())}:${pad(n.getMinutes())}:${pad(n.getSeconds())}`; } },1000);

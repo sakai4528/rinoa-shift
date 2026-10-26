@@ -12,7 +12,7 @@
  *   4. デプロイ → 新しいデプロイ → ウェブアプリ（実行ユーザー: 自分 / アクセス: 全員）
  */
 
-const VERSION = "2026-10-26.3";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
+const VERSION = "2026-10-26.5";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
 const TZ = "Asia/Tokyo";
 const PROP = PropertiesService.getScriptProperties();
 
@@ -246,9 +246,37 @@ function handle_(action, data, auth) {
 
     case "saveTimecard": {
       needAdmin();
-      const doc = { month: ym_(data.month), staffId: String(data.staffId), days: data.days || {} };
+      const month = ym_(data.month), sid = String(data.staffId);
+      const prev = readAll_("timecards").find(r => r.month === month && r.staffId === sid) || { month, staffId: sid, days: {} };
+      const next = { month, staffId: sid, days: {}, edits: (prev.edits || []).slice() };
+      const by = whoName_(auth, staff) + "（経営者）";
+      const days = new Set(Object.keys(prev.days || {}).concat(Object.keys(data.days || {})));
+      days.forEach(d => {
+        const a = (prev.days || {})[d], b = (data.days || {})[d];
+        if (!b) { if (a) addEdit_(next, d, by, "記録を削除（" + recText_(a) + "）"); return; }
+        const rec = Object.assign({}, a || {}, { in: b.in, brk: +b.brk || 0 }); if (b.out) rec.out = b.out; else delete rec.out;
+        if (!a) { rec.manual = true; addEdit_(next, d, by, "記録を追加（" + recText_(rec) + "）"); }
+        else if (recText_(a) !== recText_(rec)) addEdit_(next, d, by, recText_(a) + " → " + recText_(rec));
+        if (rec.req && (!a || recText_(a) !== recText_(rec))) delete rec.req;   // 依頼に対応したら依頼を消す
+        if (a && recText_(a) !== recText_(rec)) rec.edited = true;
+        if (!a) rec.edited = true;
+        next.days[d] = rec;
+      });
+      upsert_("timecards", ["month", "staffId"], next);
+      log_(auth, "saveTimecard", month + " " + sid);
+      return { timecard: next };
+    }
+
+    case "requestFix": {
+      needMe();
+      const month = ym_(data.month), d = String(+data.day), text = String(data.text || "").trim().slice(0, 200);
+      if (!text) throw new Error("text_required");
+      const doc = readAll_("timecards").find(r => r.month === month && r.staffId === me.id);
+      if (!doc || !doc.days || !doc.days[d]) throw new Error("no_record");
+      doc.days[d].req = { text, at: nowStr_().slice(0, 16) };
       upsert_("timecards", ["month", "staffId"], doc);
-      log_(auth, "saveTimecard", doc.month + " " + doc.staffId);
+      log_(auth, "requestFix", month + "/" + d);
+      pushTo_(admins.map(a => a.userId), `【${settings.name}】${me.name}さんから打刻修正の依頼\n${+month.slice(5)}/${d}（現在 ${recText_(doc.days[d])}）\n「${text}」\n管理画面の勤怠 → 明細・修正 から直せます。`);
       return { timecard: doc };
     }
 
@@ -298,12 +326,12 @@ function handleDevice_(action, data, device) {
         if (!s.pin) throw new Error("pin_not_set");
         if (pinHash_(s.id, String(data.pin || "")) !== s.pin) throw new Error("bad_pin");
       }
-      if (data.type !== "in" && data.type !== "out") throw new Error("bad_type");
+      if (!["in", "out", "undoIn", "undoOut"].includes(data.type)) throw new Error("bad_type");
       const r = punch_(s, data, "kiosk:" + device.id);
       log_({ userId: "device:" + device.id }, "kioskPunch:" + data.type, s.name);
       const today = todayStatus_(staff);
       const day = String(+fmt_(new Date(), "dd")); const rec = (r.timecard.days || {})[day];
-      if (rec && today.status[s.id]) { today.status[s.id].in = rec.in ? rec.in.slice(11, 16) : ""; today.status[s.id].out = rec.out ? rec.out.slice(11, 16) : ""; today.status[s.id].brk = +rec.brk || 0; }
+      if (today.status[s.id]) { today.status[s.id].in = rec && rec.in ? rec.in.slice(11, 16) : ""; today.status[s.id].out = rec && rec.out ? rec.out.slice(11, 16) : ""; today.status[s.id].brk = rec ? (+rec.brk || 0) : 0; }
       return Object.assign(r, { today });
     }
     default: throw new Error("unknown_action");
@@ -333,11 +361,34 @@ function punch_(staffRow, data, via) {
     const r = doc.days[day];
     if (!r || !r.in) throw new Error("not_in");
     if (!/^\d{2}:\d{2}$/.test(String(data.hm || ""))) throw new Error("bad_time");
-    r.out = r.in.slice(0, 10) + "T" + data.hm; r.manual = true;
+    r.out = r.in.slice(0, 10) + "T" + data.hm; r.manual = true; r.edited = true;
+    addEdit_(doc, day, staffRow.name + "（本人）", "退勤を手入力 " + data.hm);
+  } else if (data.type === "undoIn" || data.type === "undoOut") {
+    const r = doc.days[day];
+    if (!r || !r.in) throw new Error("not_in");
+    const limit = 15 * 60000;
+    if (data.type === "undoOut") {
+      if (!r.out) throw new Error("not_out");
+      if (now - new Date(r.out.replace("T", " ").replace(/-/g, "/")) > limit) throw new Error("undo_expired");
+      addEdit_(doc, day, staffRow.name + "（本人・取り消し）", "退勤 " + r.out.slice(11) + " を取り消し");
+      delete r.out; delete r.viaOut; r.edited = true;
+    } else {
+      if (r.out) throw new Error("already_out");
+      if (now - new Date(r.in.replace("T", " ").replace(/-/g, "/")) > limit) throw new Error("undo_expired");
+      addEdit_(doc, day, staffRow.name + "（本人・取り消し）", "出勤 " + r.in.slice(11) + " を取り消し");
+      delete doc.days[day];
+    }
   } else throw new Error("bad_type");
   upsert_("timecards", ["month", "staffId"], doc);
   return { timecard: doc, serverTime: stamp };
 }
+
+/* ---------- 修正履歴 ---------- */
+function addEdit_(doc, day, by, what) {
+  doc.edits = (doc.edits || []).concat([{ at: nowStr_().slice(0, 16), day: String(+day), by, what }]).slice(-300);
+}
+function recText_(r) { if (!r || !r.in) return "記録なし"; return r.in.slice(11, 16) + "〜" + (r.out ? r.out.slice(11, 16) : "未退勤") + (r.brk ? " 休憩" + r.brk + "分" : ""); }
+function whoName_(auth, staff) { const s = (staff || []).find(x => x.userId === auth.userId); return s ? s.name : (auth.name || "管理者"); }
 
 /* ---------- 月データ ---------- */
 function monthsFor_(months, me, isAdmin) {
@@ -433,6 +484,7 @@ function dailyJob() {
    ============================================================ */
 function setup() {
   Object.keys(SHEETS).forEach(getSheet_);
+  migrate_();
   const cur = getSettings_();
   Object.keys(DEFAULT_SETTINGS).forEach(k => { if (cur[k] === undefined) upsert_("settings", ["key"], { key: k, value: DEFAULT_SETTINGS[k] }); });
   UrlFetchApp.fetch("https://api.line.me/v2/profile", { muteHttpExceptions: true }); // 外部接続の権限を先に許可させる
@@ -465,7 +517,7 @@ function ss_() {
 function getSheet_(name) {
   const ss = ss_();
   let sh = ss.getSheetByName(name);
-  if (!sh) { sh = ss.insertSheet(name); sh.appendRow(SHEETS[name]); sh.setFrozenRows(1); return sh; }
+  if (!sh) { sh = ss.insertSheet(name); sh.appendRow(SHEETS[name]); sh.setFrozenRows(1); sh.getRange(1, 1, sh.getMaxRows(), SHEETS[name].length).setNumberFormat("@"); return sh; }
   const want = SHEETS[name];
   const have = sh.getLastColumn() ? sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0] : [];
   if (want.some((h, i) => have[i] !== h)) sh.getRange(1, 1, 1, want.length).setValues([want]);   // 列が増えたとき見出しをそろえる
@@ -480,7 +532,7 @@ function readAll_(name) {
   return vals.slice(1).filter(r => r.some(v => v !== "")).map(r => {
     const o = {};
     head.forEach((h, i) => {
-      let v = r[i];
+      let v = cellStr_(h, r[i]);
       if (jc.includes(h)) { try { v = v === "" ? null : JSON.parse(v); } catch (e) { v = null; } }
       if (h === "active") v = (v === true || v === "TRUE" || v === "true" || v === "");
       if (h === "order" && v !== "") v = +v;
@@ -498,10 +550,10 @@ function upsert_(name, keys, obj) {
     const row = head.map(h => { let v = obj[h]; if (v === undefined || v === null) v = ""; if (jc.includes(h)) v = JSON.stringify(v); if (typeof v === "boolean") v = v ? "TRUE" : "FALSE"; return v; });
     const vals = sh.getDataRange().getValues();
     for (let i = 1; i < vals.length; i++) {
-      if (keys.every(k => String(vals[i][head.indexOf(k)]) === String(obj[k]))) { sh.getRange(i + 1, 1, 1, head.length).setValues([row]); SpreadsheetApp.flush(); return; }
+      if (keys.every(k => String(cellStr_(k, vals[i][head.indexOf(k)])) === String(obj[k]))) { const rg = sh.getRange(i + 1, 1, 1, head.length); rg.setNumberFormat("@"); rg.setValues([row]); SpreadsheetApp.flush(); return; }
     }
-    sh.appendRow(row);
-    SpreadsheetApp.flush();   // 直後に読み直しても書き込み後の値が返るように確定させる
+    const rg = sh.getRange(vals.length + 1, 1, 1, head.length); rg.setNumberFormat("@"); rg.setValues([row]);   // 文字列として保存（"2026-10" を日付に変換させない）
+    SpreadsheetApp.flush();
   } finally { lock.releaseLock(); }
 }
 function remove_(name, pred) {
@@ -520,6 +572,36 @@ function getSettings_() {
 }
 function log_(auth, action, detail) {
   try { getSheet_("log").appendRow([nowStr_(), auth.userId, action, String(detail || "").slice(0, 200)]); } catch (e) { /* ログ失敗は無視 */ }
+}
+
+/* ---------- セル値の正規化：日付に自動変換された月・日時を文字列へ ---------- */
+function cellStr_(h, v) {
+  if (v instanceof Date) { if (isNaN(v.getTime())) return ""; return h === "month" ? fmt_(v, "yyyy-MM") : fmt_(v, "yyyy-MM-dd'T'HH:mm:ss"); }
+  return v;
+}
+/** 既存データの修復：文字列書式にそろえ、日付化した月を戻し、同じキーの重複行をまとめる（setup から実行） */
+function migrate_() {
+  Object.keys(SHEETS).forEach(name => {
+    const sh = getSheet_(name);
+    sh.getRange(1, 1, Math.max(sh.getMaxRows(), 2), SHEETS[name].length).setNumberFormat("@");
+    const keys = { settings: ["key"], staff: ["id"], shifts: ["month"], wishes: ["month", "staffId"], timecards: ["month", "staffId"], admins: ["userId"], devices: ["id"] }[name];
+    if (!keys) return;
+    const rows = readAll_(name);
+    const merged = {}; const order = [];
+    rows.forEach(r => {
+      const k = keys.map(x => String(r[x])).join("|");
+      if (!merged[k]) { merged[k] = r; order.push(k); return; }
+      const a = merged[k];
+      if (name === "timecards") { a.days = Object.assign({}, a.days || {}, r.days || {}); a.edits = (a.edits || []).concat(r.edits || []); }
+      else merged[k] = r;   // それ以外は後の行を採用
+    });
+    if (order.length === rows.length && rows.every(r => keys.every(x => typeof r[x] === "string"))) { /* 重複なし・型も正常 */ }
+    const head = SHEETS[name], jc = JSON_COLS[name] || [];
+    const out = order.map(k => head.map(h => { let v = merged[k][h]; if (v === undefined || v === null) v = ""; if (jc.includes(h)) v = JSON.stringify(v); if (typeof v === "boolean") v = v ? "TRUE" : "FALSE"; return v; }));
+    if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, Math.max(head.length, sh.getLastColumn())).clearContent();
+    if (out.length) { const rg = sh.getRange(2, 1, out.length, head.length); rg.setNumberFormat("@"); rg.setValues(out); }
+    SpreadsheetApp.flush();
+  });
 }
 
 /* ---------- ユーティリティ ---------- */

@@ -208,7 +208,7 @@ const CONFIG = {
 /* ============================================================
    共通
    ============================================================ */
-const SERVER_VERSION="2026-10-26.3";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
+const SERVER_VERSION="2026-10-26.5";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
 const TC_MODES={nearest:"四捨五入（15分未満は切り捨て、15分以上は30分扱い）",floor:"すべて切り捨て",ceil:"すべて切り上げ",favor:"出勤は切り上げ・退勤は切り捨て"};
 const WD = ["日","月","火","水","木","金","土"];
 const pad = n => String(n).padStart(2,"0");
@@ -324,6 +324,7 @@ const Store = {
   /* --- 書き込み --- */
   async register(name){ const j=await this.api("register",{name}); this.me=j.me; this.staff=j.staff; this.emit(); },
   async saveWish(w){ const j=await this.api("saveWish",w); const ws={...this.wishesOf(w.month)}; ws[j.wish.staffId]=j.wish; this.setMonthPart(w.month,"wishes",ws); this.emit(); },
+  async requestFix(month,day,text){ const j=await this.api("requestFix",{month,day,text}); const tc={...this.tcOf(month)}; tc[j.timecard.staffId]=j.timecard; this.setMonthPart(month,"timecards",tc); this.emit(); },
   async setPin(pin){ const j=await this.api("setPin",{pin}); this.me=j.me; this.emit(); },
   async resetPin(staffId,pin){ const j=await this.api("resetPin",{staffId,pin:pin||""}); this.staff=j.staff; this.emit(); },
   async createDevice(name){ const j=await this.api("createDevice",{name}); this.devices=j.devices; this.emit(); },
@@ -346,7 +347,7 @@ const Store = {
    ============================================================ */
 const state = {
   role:"staff", tab:"wish", atab:"cal", month:THIS_YM, wishMonth:addMonth(THIS_YM,1), tcMonth:THIS_YM, tcStaff:null,
-  proxyId:null, selDay:null, sheetDay:null, draftWish:null, draftDirty:false, editStaff:null, lineText:null, busy:false
+  proxyId:null, fixReqDay:null, selDay:null, sheetDay:null, draftWish:null, draftDirty:false, editStaff:null, lineText:null, busy:false
 };
 const $ = s => document.querySelector(s);
 const app = $("#app");
@@ -497,13 +498,17 @@ function vPinCard(m){
 }
 function vTcHistory(m){
   const ym=state.tcMonth, {y,m:mo}=parseYM(ym), doc=Store.tcOf(ym)[m.id]||{days:{}}, days=Object.keys(doc.days||{}).map(Number).sort((a,b)=>a-b);
-  let total=0, cnt=0; const rows=days.map(d=>{ const r=doc.days[d], c=calcRec(r); if(!c) return ""; if(!c.open){ total+=c.mins; cnt++; } const w=dow(y,mo,d);
-    return `<div class="r ${c.open?"open":""} ${r.manual?"manual":""}"><span class="dd ${w===6?"sat":""} ${w===0?"sun":""}">${d}日(${WD[w]})</span><span>${c.open?`${dropZero(c.inR)}〜 退勤未`:`${dropZero(c.inR)}〜${dropZero(c.outR)}${r.brk?` 休${r.brk}`:""}`}<br><span class="raw">打刻 ${dropZero(r.in.slice(11,16))}${r.out?`〜${dropZero(r.out.slice(11,16))}`:""}</span></span><span class="hh">${c.open?"—":fmtH(c.mins/60)+"h"}</span></div>`; }).join("");
+  const edits=doc.edits||[];
+  let total=0, cnt=0; const rows=days.map(d=>{ const r=doc.days[d], c=calcRec(r); if(!c) return ""; if(!c.open){ total+=c.mins; cnt++; } const w=dow(y,mo,d); const ed=edits.filter(e=>String(e.day)===String(d));
+    const flags=`${r.edited||ed.length?'<span class="badge edit">修正あり</span>':""}${r.req?'<span class="badge">修正依頼中</span>':""}`;
+    const hist= ed.length?`<div class="raw" style="margin-top:3px">${ed.map(e=>`${esc(String(e.at).slice(5,16).replace("T"," "))} ${esc(e.by)}：${esc(e.what)}`).join("<br>")}</div>`:"";
+    const reqUI= state.fixReqDay===d?`<form class="f" id="fixreq" data-d="${d}" style="grid-column:1/4;gap:6px;margin-top:4px"><textarea id="fixText" maxlength="200" placeholder="例：退勤を押し忘れました。実際は18:05に帰りました" style="min-height:56px"></textarea><div class="row"><button class="btn sm" ${state.busy?"disabled":""}>経営者に送る</button><button type="button" class="btn ghost sm" data-act="fixReq" data-d="${d}">やめる</button></div></form>`:"";
+    return `<div class="r ${c.open?"open":""} ${r.manual?"manual":""}" style="grid-template-columns:64px 1fr auto;row-gap:2px"><span class="dd ${w===6?"sat":""} ${w===0?"sun":""}">${d}日(${WD[w]})</span><span>${c.open?`${dropZero(c.inR)}〜 退勤未`:`${dropZero(c.inR)}〜${dropZero(c.outR)}${r.brk?` 休${r.brk}`:""}`} ${flags}<br><span class="raw">打刻 ${dropZero(r.in.slice(11,16))}${r.out?`〜${dropZero(r.out.slice(11,16))}`:""}</span>${hist}${r.req?`<div class="raw">依頼中：「${esc(r.req.text)}」</div>`:""}</span><span style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><span class="hh">${c.open?"—":fmtH(c.mins/60)+"h"}</span>${state.proxyId?"":`<button class="btn ghost sm" data-act="fixReq" data-d="${d}" style="min-height:26px;padding:2px 8px;font-size:11px">修正を依頼</button>`}</span>${reqUI}</div>`; }).join("");
   return `<section class="card">
     ${vMonthNav("tcm",ym,"の勤務")}
     <div class="sum" style="margin:10px 0"><div><b>${cnt}</b><span>出勤日数</span></div><div><b>${fmtH(total/60)}</b><span>実働合計（h）</span></div><div><b>${+Store.settings.tcUnit||30}</b><span>分刻みで計算</span></div></div>
     <div class="tcl">${rows||'<div class="note">この月の打刻はまだありません。</div>'}</div>
-    <p class="note" style="margin-top:8px">計算方法：${esc(TC_MODES[Store.settings.tcMode||"nearest"])}。</p>
+    <p class="note" style="margin-top:8px">計算方法：${esc(TC_MODES[Store.settings.tcMode||"nearest"])}。押し間違いは打刻から15分以内なら店舗iPadで本人が取り消せます。それ以降は「修正を依頼」から経営者に連絡してください。</p>
   </section>`;
 }
 
@@ -561,13 +566,13 @@ function vDaySheet(){
 }
 function vTcAdmin(){
   const ym=state.month, tcs=Store.tcOf(ym), list=activeStaff(), S=Store.settings;
-  const sums=list.map(s=>{ const doc=tcs[s.id]||{days:{}}; let mins=0,cnt=0,open=0,manual=0; Object.values(doc.days||{}).forEach(r=>{ const c=calcRec(r); if(!c) return; if(c.open) open++; else { mins+=c.mins; cnt++; } if(r.manual) manual++; }); return {s,mins,cnt,open,manual}; });
+  const sums=list.map(s=>{ const doc=tcs[s.id]||{days:{}}; let mins=0,cnt=0,open=0,manual=0,edited=0,req=0; Object.values(doc.days||{}).forEach(r=>{ const c=calcRec(r); if(!c) return; if(c.open) open++; else { mins+=c.mins; cnt++; } if(r.manual) manual++; if(r.edited) edited++; if(r.req) req++; }); return {s,mins,cnt,open,manual,edited,req}; });
   const grand=sums.reduce((a,x)=>a+x.mins,0), sel=state.tcStaff&&list.find(s=>s.id===state.tcStaff);
   return `<section class="card">
     <div class="row space">${vMonthNav("pm",ym)}<span class="badge col">${+S.tcUnit||30}分刻み</span></div>
     <p class="note" style="margin:8px 0">${esc(TC_MODES[S.tcMode||"nearest"])}。丸め方は「設定」で変えられます。</p>
     <div class="tbl"><table class="list"><thead><tr><th>スタッフ</th><th>出勤日数</th><th>実働合計</th><th>注意</th><th></th></tr></thead><tbody>
-    ${sums.map(x=>`<tr><td><b>${esc(x.s.name)}</b></td><td>${x.cnt}日</td><td><b>${fmtH(x.mins/60)}</b> h</td><td>${x.open?`<span class="badge edit">退勤未 ${x.open}</span>`:""} ${x.manual?`<span class="badge">手入力 ${x.manual}</span>`:""}</td><td><button class="btn ghost sm" data-act="tcStaff" data-id="${esc(x.s.id)}">${state.tcStaff===x.s.id?"閉じる":"明細・修正"}</button></td></tr>`).join("")||'<tr><td colspan="5" class="note">スタッフが登録されていません</td></tr>'}
+    ${sums.map(x=>`<tr><td><b>${esc(x.s.name)}</b></td><td>${x.cnt}日</td><td><b>${fmtH(x.mins/60)}</b> h</td><td>${x.req?`<span class="badge edit">修正依頼 ${x.req}</span> `:""}${x.open?`<span class="badge edit">退勤未 ${x.open}</span> `:""}${x.edited?`<span class="badge">修正あり ${x.edited}</span> `:""}${x.manual?`<span class="badge">手入力 ${x.manual}</span>`:""}</td><td><button class="btn ghost sm" data-act="tcStaff" data-id="${esc(x.s.id)}">${state.tcStaff===x.s.id?"閉じる":"明細・修正"}</button></td></tr>`).join("")||'<tr><td colspan="5" class="note">スタッフが登録されていません</td></tr>'}
     <tr><td colspan="2"><b>合計</b></td><td><b>${fmtH(grand/60)}</b> h</td><td colspan="2"></td></tr></tbody></table></div>
     <div class="row" style="margin-top:10px"><button class="btn ghost" data-act="tcText">給与計算用テキスト</button></div>
     ${state.lineText?`<pre class="txt" id="lineTxt">${esc(state.lineText)}</pre><div class="row" style="margin-top:8px"><button class="btn sm" data-act="copyLine">コピー</button><button class="btn ghost sm" data-act="closeLine">閉じる</button></div>`:""}
@@ -577,13 +582,15 @@ function vTcAdmin(){
 function vTcDetail(s,ym){
   const {y,m}=parseYM(ym), doc=Store.tcOf(ym)[s.id]||{month:ym,staffId:s.id,days:{}}, days=Object.keys(doc.days||{}).map(Number).sort((a,b)=>a-b);
   const rows=days.map(d=>{ const r=doc.days[d], c=calcRec(r)||{}; const w=dow(y,m,d);
-    return `<div class="tce"><span class="dd" style="color:${w===0?"var(--sun)":w===6?"var(--sat)":"inherit"}">${d}日</span><input type="time" id="ti${d}" value="${esc(r.in?r.in.slice(11,16):"")}" aria-label="出勤"><input type="time" id="to${d}" value="${esc(r.out?r.out.slice(11,16):"")}" aria-label="退勤"><input type="number" id="tb${d}" value="${esc(r.brk||0)}" min="0" step="5" aria-label="休憩分"><button class="x" data-act="tcDel" data-d="${d}" aria-label="削除">×</button><span></span><span class="note" style="grid-column:2/5">計算 ${c.inR?dropZero(c.inR):"—"}〜${c.outR?dropZero(c.outR):"—"}　実働 ${c.open||!c.inR?"—":fmtH(c.mins/60)+"h"}${r.manual?"　<span style='color:var(--warn)'>手入力</span>":""}${r.editedBy==="owner"?"　経営者修正":""}</span></div>`; }).join("");
+    return `<div class="tce"><span class="dd" style="color:${w===0?"var(--sun)":w===6?"var(--sat)":"inherit"}">${d}日</span><input type="time" id="ti${d}" value="${esc(r.in?r.in.slice(11,16):"")}" aria-label="出勤"><input type="time" id="to${d}" value="${esc(r.out?r.out.slice(11,16):"")}" aria-label="退勤"><input type="number" id="tb${d}" value="${esc(r.brk||0)}" min="0" step="5" aria-label="休憩分"><button class="x" data-act="tcDel" data-d="${d}" aria-label="削除">×</button><span></span><span class="note" style="grid-column:2/5">計算 ${c.inR?dropZero(c.inR):"—"}〜${c.outR?dropZero(c.outR):"—"}　実働 ${c.open||!c.inR?"—":fmtH(c.mins/60)+"h"}${r.manual?"　<span style='color:var(--warn)'>手入力</span>":""}${r.edited?"　<span class='badge edit'>修正あり</span>":""}${r.req?`<br><b style="color:var(--warn)">修正依頼（${esc(String(r.req.at||"").slice(5).replace("T"," "))}）：</b>「${esc(r.req.text)}」`:""}</span></div>`; }).join("");
+  const edits=(doc.edits||[]).slice().reverse();
   return `<section class="card" id="tcdetail"><h2>${esc(s.name)}<small>${monthLabel(ym)}の明細</small></h2>
     <p class="note">時刻を直して「保存」。退勤が出勤より早い時刻なら翌日扱いです。</p>
     <div class="tce" style="color:var(--muted);font-size:11px"><span></span><span>出勤</span><span>退勤</span><span>休憩(分)</span><span></span></div>
     <div class="f" style="gap:8px;margin-top:6px">${rows||'<div class="note">打刻がありません。下の欄から追加できます。</div>'}</div>
     <div class="tce" style="margin-top:12px;border-top:1px solid var(--line2);padding-top:10px"><input type="number" id="tcNewDay" min="1" max="${daysIn(y,m)}" placeholder="日" aria-label="日"><input type="time" id="tcNewIn" aria-label="出勤"><input type="time" id="tcNewOut" aria-label="退勤"><input type="number" id="tcNewBrk" value="0" min="0" step="5" aria-label="休憩分"><button class="btn ghost sm" data-act="tcAdd" style="min-height:38px;padding:0 10px">追加</button></div>
     <div class="row" style="margin-top:12px"><button class="btn" data-act="tcSave" ${state.busy?"disabled":""}>明細を保存</button><button class="btn ghost" data-act="tcStaff" data-id="${esc(s.id)}">閉じる</button></div>
+    ${edits.length?`<h3 style="margin:16px 0 6px;font-size:14px">修正履歴<small class="note" style="font-weight:400;margin-left:6px">${edits.length}件</small></h3><div class="tbl"><table class="list"><thead><tr><th>日時</th><th>日</th><th>誰が</th><th>内容</th></tr></thead><tbody>${edits.map(e=>`<tr><td>${esc(String(e.at).slice(5,16).replace("T"," "))}</td><td>${esc(e.day)}日</td><td>${esc(e.by)}</td><td>${esc(e.what)}</td></tr>`).join("")}</tbody></table></div>`:""}
   </section>`;
 }
 function vWishList(){
@@ -641,7 +648,7 @@ function go(){ render(); }
 function setMonth(n){ state.month=addMonth(state.month,n); state.selDay=null; state.sheetDay=null; state.lineText=null; go(); }
 function writeCells(mut){ const sh={...Store.shiftOf(state.month)}; sh.cells={...sh.cells}; mut(sh.cells); Store.setShiftLocal(sh); }
 async function busy(fn){ if(state.busy) return; state.busy=true; go(); try{ await fn(); }catch(e){ toast(errMsg(e)); } state.busy=false; go(); }
-function errMsg(e){ const m=String(e&&e.message||e); return ({closed:"受付は締め切られています",forbidden:"この操作は管理者のみです",not_registered:"先に名前を登録してください",already_in:"すでに出勤しています",not_in:"出勤が押されていません",bad_pin:"暗証番号が違います",bad_pin_format:"暗証番号は4〜6桁の数字にしてください",phone_punch_disabled:"出勤・退勤は店内のiPadで押してください",pin_not_set:"先に暗証番号を設定してください",bad_staff:"スタッフが見つかりません"})[m]||("エラー："+m); }
+function errMsg(e){ const m=String(e&&e.message||e); return ({closed:"受付は締め切られています",forbidden:"この操作は管理者のみです",not_registered:"先に名前を登録してください",already_in:"すでに出勤しています",not_in:"出勤が押されていません",bad_pin:"暗証番号が違います",bad_pin_format:"暗証番号は4〜6桁の数字にしてください",phone_punch_disabled:"出勤・退勤は店内のiPadで押してください",pin_not_set:"先に暗証番号を設定してください",bad_staff:"スタッフが見つかりません",no_record:"その日の打刻がありません",text_required:"内容を書いてください",undo_expired:"取り消せるのは打刻から15分以内です",not_out:"退勤はまだ押されていません",already_out:"退勤済みのため取り消せません"})[m]||("エラー："+m); }
 
 app.addEventListener("click", async e=>{
   const t=e.target.closest("[data-act]"); if(!t) return;
@@ -676,6 +683,7 @@ app.addEventListener("click", async e=>{
     case "tcText": state.lineText=buildTcText(); go(); break;
     case "closeLine": state.lineText=null; go(); break;
     case "copyLine": { const txt=state.lineText||""; try{ await navigator.clipboard.writeText(txt); toast("コピーしました。LINEに貼り付けてください"); }catch(err){ const el=$("#lineTxt"); if(el){ const r=document.createRange(); r.selectNodeContents(el); const sel=getSelection(); sel.removeAllRanges(); sel.addRange(r); } toast("長押しでコピーしてください"); } break; }
+    case "fixReq": state.fixReqDay = state.fixReqDay===+t.dataset.d?null:+t.dataset.d; go(); $("#fixText")?.focus(); break;
     case "delDevice": { if(t.dataset.sure!=="1"){ t.dataset.sure="1"; t.textContent="本当に無効にする（もう一度タップ）"; break; } await busy(async()=>{ await Store.deleteDevice(t.dataset.id); toast("端末コードを無効にしました"); }); break; }
     case "editStaff": state.editStaff=Store.staff.find(s=>s.id===t.dataset.id)||null; go(); $("#sName")?.focus(); break;
     case "cancelEdit": state.editStaff=null; go(); break;
@@ -687,10 +695,10 @@ app.addEventListener("click", async e=>{
     case "tcSave": case "tcAdd": case "tcDel": await busy(async()=>{
       const sid=state.tcStaff, ym=state.month; if(!sid) return;
       const doc={month:ym,staffId:sid,days:{...((Store.tcOf(ym)[sid]||{}).days||{})}};
-      Object.keys(doc.days).forEach(d=>{ const i=$(`#ti${d}`)?.value, o=$(`#to${d}`)?.value, b=$(`#tb${d}`)?.value; if(i===undefined) return; const r={...doc.days[d]}; const date=`${ym}-${pad(+d)}`; const prevIn=r.in, prevOut=r.out;
-        if(i) r.in=date+"T"+i; if(o) r.out=(r.out?r.out.slice(0,10):date)+"T"+o; else delete r.out; r.brk=Math.max(0,+b||0); if(r.in!==prevIn||r.out!==prevOut) r.editedBy="owner"; doc.days[d]=r; });
+      Object.keys(doc.days).forEach(d=>{ const i=$(`#ti${d}`)?.value, o=$(`#to${d}`)?.value, b=$(`#tb${d}`)?.value; if(i===undefined) return; const r={...doc.days[d]}; const date=`${ym}-${pad(+d)}`;
+        if(i) r.in=date+"T"+i; if(o) r.out=(r.out?r.out.slice(0,10):date)+"T"+o; else delete r.out; r.brk=Math.max(0,+b||0); doc.days[d]=r; });
       if(act==="tcDel") delete doc.days[t.dataset.d];
-      if(act==="tcAdd"){ const d=+$("#tcNewDay").value, i=$("#tcNewIn").value, o=$("#tcNewOut").value, b=+$("#tcNewBrk").value||0; if(!d||!i) throw new Error("日と出勤時刻を入れてください"); const date=`${ym}-${pad(d)}`; doc.days[d]={in:date+"T"+i,...(o?{out:date+"T"+o}:{}),brk:b,manual:true,editedBy:"owner"}; }
+      if(act==="tcAdd"){ const d=+$("#tcNewDay").value, i=$("#tcNewIn").value, o=$("#tcNewOut").value, b=+$("#tcNewBrk").value||0; if(!d||!i) throw new Error("日と出勤時刻を入れてください"); const date=`${ym}-${pad(d)}`; doc.days[d]={in:date+"T"+i,...(o?{out:date+"T"+o}:{}),brk:b,manual:true}; }
       await Store.saveTC(doc); toast(act==="tcDel"?"削除しました":act==="tcAdd"?"追加しました":"保存しました"); }); break;
   }
 });
@@ -705,6 +713,7 @@ app.addEventListener("input", e=>{ if(e.target.id==="wMemo"){ state.draftWish.me
 app.addEventListener("submit", async e=>{
   e.preventDefault(); const f=e.target, fd=new FormData(f), S=Store.settings;
   if(f.id==="regf"){ const name=(fd.get("name")||"").trim(); if(!name){ $("#regerr").textContent="お名前を入れてください"; return; } await busy(async()=>{ await Store.register(name); toast(`${name}さん、登録しました`); }); }
+  if(f.id==="fixreq"){ const d=+f.dataset.d, text=($("#fixText")?.value||"").trim(); if(!text){ toast("内容を書いてください"); return; } await busy(async()=>{ await Store.requestFix(state.tcMonth,d,text); state.fixReqDay=null; toast("経営者に送りました"); }); }
   if(f.id==="pinset"){ const pin=String(fd.get("pin")||"").trim(); if(!/^\d{4,6}$/.test(pin)){ toast("暗証番号は4〜6桁の数字にしてください"); return; } await busy(async()=>{ await Store.setPin(pin); toast("暗証番号を設定しました。店舗iPadで使えます"); }); }
   if(f.id==="devf"){ const name=String(fd.get("name")||"").trim()||"店舗iPad"; await busy(async()=>{ await Store.createDevice(name); toast("端末コードを発行しました"); }); }
   if(f.id==="pinf"){ await busy(async()=>{ await Store.adminLogin(String(fd.get("pin")||"")); state.role="admin"; toast("管理者として登録しました"); }); }
@@ -733,7 +742,7 @@ function buildLineText(){
 function buildTcText(){
   const ym=state.month, {y,m}=parseYM(ym), tcs=Store.tcOf(ym), S=Store.settings, lines=[`【${S.name} ${y}年${m}月 勤務時間】${+S.tcUnit||30}分刻み／${TC_MODES[S.tcMode||"nearest"]}`];
   activeStaff().forEach(s=>{ const doc=tcs[s.id]; if(!doc) return; let tot=0; const ds=Object.keys(doc.days||{}).map(Number).sort((a,b)=>a-b); lines.push(`■ ${s.name}`);
-    ds.forEach(d=>{ const r=doc.days[d], c=calcRec(r); if(!c) return; if(c.open){ lines.push(`${m}/${d}(${WD[dow(y,m,d)]}) ${dropZero(c.inR)}〜 退勤未`); return; } tot+=c.mins; lines.push(`${m}/${d}(${WD[dow(y,m,d)]}) ${dropZero(c.inR)}〜${dropZero(c.outR)}${r.brk?` 休憩${r.brk}分`:""} ${fmtH(c.mins/60)}h${r.manual?" ※手入力":""}`); });
+    ds.forEach(d=>{ const r=doc.days[d], c=calcRec(r); if(!c) return; if(c.open){ lines.push(`${m}/${d}(${WD[dow(y,m,d)]}) ${dropZero(c.inR)}〜 退勤未`); return; } tot+=c.mins; lines.push(`${m}/${d}(${WD[dow(y,m,d)]}) ${dropZero(c.inR)}〜${dropZero(c.outR)}${r.brk?` 休憩${r.brk}分`:""} ${fmtH(c.mins/60)}h${r.manual?" ※手入力":""}${r.edited?" ※修正あり":""}`); });
     lines.push(`合計 ${fmtH(tot/60)}h`); });
   return lines.join("\n");
 }
