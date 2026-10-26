@@ -208,7 +208,7 @@ const CONFIG = {
 /* ============================================================
    共通
    ============================================================ */
-const SERVER_VERSION="2026-10-26.1";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
+const SERVER_VERSION="2026-10-26.2";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
 const TC_MODES={nearest:"四捨五入（15分未満は切り捨て、15分以上は30分扱い）",floor:"すべて切り捨て",ceil:"すべて切り上げ",favor:"出勤は切り上げ・退勤は切り捨て"};
 const WD = ["日","月","火","水","木","金","土"];
 const pad = n => String(n).padStart(2,"0");
@@ -286,7 +286,7 @@ function dayCounts(ym){
    Store：LIFF で本人確認し、Apps Script の API でやりとり
    ============================================================ */
 const Store = {
-  token:null, profile:null, me:null, isAdmin:false, liffUrl:"", serverVersion:"",
+  token:null, profile:null, me:null, isAdmin:false, liffUrl:"", serverVersion:"", devices:[],
   settings:{name:"シフト表",eyebrow:"",deadlineDay:20,openStart:"11:00",openEnd:"18:00",required:[2,2,2,2,2,3,3],closed:[],closedHol:true,tcUnit:30,tcMode:"nearest"},
   staff:[], months:{}, loading:{}, listeners:[], ready:false, error:null, lastFetch:0, pendingSaves:0,
   on(fn){ this.listeners.push(fn); }, emit(){ this.listeners.forEach(f=>f()); },
@@ -309,7 +309,7 @@ const Store = {
   async bootstrap(){
     try{
       const j=await this.api("bootstrap",{months:this.wantMonths()});
-      this.profile=j.profile; this.serverVersion=j.version||""; this.settings={...this.settings,...j.settings}; this.staff=j.staff; this.me=j.me; this.isAdmin=j.isAdmin; this.liffUrl=j.liffUrl||"";
+      this.profile=j.profile; this.serverVersion=j.version||""; this.devices=j.devices||[]; this.settings={...this.settings,...j.settings}; this.staff=j.staff; this.me=j.me; this.isAdmin=j.isAdmin; this.liffUrl=j.liffUrl||"";
       Object.assign(this.months,j.months); this.ready=true; this.error=null; this.lastFetch=Date.now();
     }catch(e){ this.error="データを読み込めませんでした。電波の良いところでもう一度開いてください。（"+(e.message||e)+"）"; }
     this.emit();
@@ -324,6 +324,10 @@ const Store = {
   /* --- 書き込み --- */
   async register(name){ const j=await this.api("register",{name}); this.me=j.me; this.staff=j.staff; this.emit(); },
   async saveWish(w){ const j=await this.api("saveWish",w); const ws={...this.wishesOf(w.month)}; ws[j.wish.staffId]=j.wish; this.setMonthPart(w.month,"wishes",ws); this.emit(); },
+  async setPin(pin){ const j=await this.api("setPin",{pin}); this.me=j.me; this.emit(); },
+  async resetPin(staffId,pin){ const j=await this.api("resetPin",{staffId,pin:pin||""}); this.staff=j.staff; this.emit(); },
+  async createDevice(name){ const j=await this.api("createDevice",{name}); this.devices=j.devices; this.emit(); },
+  async deleteDevice(id){ const j=await this.api("deleteDevice",{id}); this.devices=j.devices; this.emit(); },
   async punch(data){ const j=await this.api("punch",data); const tc={...this.tcOf(j.timecard.month)}; tc[j.timecard.staffId]=j.timecard; this.setMonthPart(j.timecard.month,"timecards",tc); this.emit(); return j; },
   async adminLogin(pin){ const j=await this.api("adminLogin",{pin}); this.isAdmin=!!j.isAdmin; await this.bootstrap(); },
   async saveSettings(patch){ this.settings={...this.settings,...patch}; this.emit(); const j=await this.api("saveSettings",{settings:patch}); this.settings={...this.settings,...j.settings}; this.emit(); },
@@ -471,15 +475,25 @@ function vTimecard(m){
   const open=findOpenRec(m.id);
   let mTot=0,mCnt=0; Object.values(doc.days||{}).forEach(r=>{ const cc=calcRec(r); if(cc&&!cc.open){ mTot+=cc.mins; mCnt++; } });
   let body;
-  if(!rec) body=`<div class="st">${sched?(sched.kind==="off"?"本日は休みの予定です":`本日の予定：<b>${dropZero(sched.start)}〜${dropZero(sched.end)}</b>${tagLabel(sched.tags)?`（${esc(tagLabel(sched.tags))}）`:""}`):"本日のシフト予定はありません"}</div><button class="btn big" data-act="punchIn" ${state.busy?"disabled":""}>出　勤</button>`;
-  else if(c.open) body=`<div class="st"><b>出勤中</b><br>${dropZero(rec.in.slice(11,16))} に出勤（${dropZero(c.inR)} として計算）</div><div class="brkrow">休憩 <input type="number" id="tcBrk" min="0" max="300" step="5" value="${esc(rec.brk||0)}" inputmode="numeric"> 分</div><button class="btn big out" data-act="punchOut" ${state.busy?"disabled":""}>退　勤</button>`;
+  const canPunch = S.phonePunch===true || Store.isAdmin;
+  const schedTxt = sched?(sched.kind==="off"?"本日は休みの予定です":`本日の予定：<b>${dropZero(sched.start)}〜${dropZero(sched.end)}</b>${tagLabel(sched.tags)?`（${esc(tagLabel(sched.tags))}）`:""}`):"本日のシフト予定はありません";
+  if(!rec) body=`<div class="st">${schedTxt}</div>${canPunch?`<button class="btn big" data-act="punchIn" ${state.busy?"disabled":""}>出　勤</button>`:`<div class="hint" style="font-size:14px">出勤・退勤は<b>店内のiPad</b>で、自分の名前をタップして押してください。</div>`}`;
+  else if(c.open) body=`<div class="st"><b>出勤中</b><br>${dropZero(rec.in.slice(11,16))} に出勤（${dropZero(c.inR)} として計算）</div>${canPunch?`<div class="brkrow">休憩 <input type="number" id="tcBrk" min="0" max="300" step="5" value="${esc(rec.brk||0)}" inputmode="numeric"> 分</div><button class="btn big out" data-act="punchOut" ${state.busy?"disabled":""}>退　勤</button>`:`<div class="hint" style="font-size:14px">帰るときは<b>店内のiPad</b>で「退勤」を押してください。</div>`}`;
   else body=`<div class="st"><b>本日はお疲れさまでした</b><br>${dropZero(rec.in.slice(11,16))} 出勤 → ${dropZero(rec.out.slice(11,16))} 退勤${rec.brk?`（休憩 ${rec.brk}分）`:""}<br>計算：${dropZero(c.inR)}〜${dropZero(c.outR)}　実働 <b>${fmtH(c.mins/60)}</b> 時間</div><p class="note">時刻の修正が必要なときは経営者に伝えてください。</p>`;
   return `<section class="card">
     <div class="punch"><div class="date">${now.getMonth()+1}月${d}日（${WD[now.getDay()]}${isHol(now.getFullYear(),now.getMonth()+1,d)?"・祝":""}）</div><div class="clock" id="clock">${pad(now.getHours())}:${pad(now.getMinutes())}</div>${body}
     <div class="sum" style="width:100%;max-width:340px;grid-template-columns:1fr 1fr;margin-top:4px"><div><b>${fmtH(mTot/60)}<small style="font-size:12px;font-weight:400">h</small></b><span>今月の累計労働時間</span></div><div><b>${mCnt}<small style="font-size:12px;font-weight:400">日</small></b><span>今月の出勤日数</span></div></div></div>
     ${open?`<div class="warnbox" style="margin-top:10px"><b>${parseYM(open.ym).m}月${open.d}日の退勤が押されていません。</b><div class="row" style="margin-top:6px"><input type="time" id="openOut" value="${esc(roundPunch(open.rec.in.slice(11,16),"in"))}" style="border:1px solid var(--line);border-radius:8px;padding:6px 8px;background:var(--panel);min-height:38px;color:var(--ink)"><button class="btn sm" data-act="fixOpen" data-ym="${open.ym}" data-d="${open.d}">この時刻で退勤にする</button></div><p class="note" style="margin:6px 0 0">手入力した記録には「手入力」と表示され、経営者が確認します。</p></div>`:""}
   </section>
+  ${vPinCard(m)}
   ${vTcHistory(m)}`;
+}
+function vPinCard(m){
+  if(Store.settings.kioskPin===false || state.proxyId) return "";
+  return `<section class="card"><h2>店舗iPadの暗証番号<small>${m.hasPin?"設定済み":"未設定"}</small></h2>
+    <p class="note">店内のiPadで打刻するときに入れる、あなた専用の4〜6桁の数字です。${m.hasPin?"変更するときは新しい番号を入れてください。":"<b>最初に1回だけ設定してください。</b>設定するまでiPadで打刻できません。"}</p>
+    <form class="f" id="pinset" style="margin-top:8px"><div class="row"><input type="password" name="pin" id="myPin" inputmode="numeric" pattern="[0-9]{4,6}" maxlength="6" placeholder="4〜6桁" style="border:1px solid var(--line);border-radius:8px;padding:9px 12px;background:var(--bg);min-height:42px;width:140px;letter-spacing:.3em;font-size:18px" required><button class="btn" ${state.busy?"disabled":""}>${m.hasPin?"変更する":"設定する"}</button></div></form>
+  </section>`;
 }
 function vTcHistory(m){
   const ym=state.tcMonth, {y,m:mo}=parseYM(ym), doc=Store.tcOf(ym)[m.id]||{days:{}}, days=Object.keys(doc.days||{}).map(Number).sort((a,b)=>a-b);
@@ -591,6 +605,7 @@ function vStaffAdmin(){
     <div class="kv"><label>区分<select name="emp" id="sEmp">${["","社員","パート","アルバイト","業務委託"].map(v=>`<option ${e?.emp===v?"selected":""}>${v}</option>`).join("")}</select></label><label>表示順<input type="number" name="order" id="sOrder" min="1" max="99" value="${esc(e?.order??(list.length+1))}"></label></div>
     <label class="inline"><input type="checkbox" name="active" id="sActive" ${e?.active===false?"":"checked"}>シフト表に表示する</label>
     <label>メモ<span class="h">（経営者のみ閲覧）</span><input type="text" name="note" id="sNote" maxlength="100" value="${esc(e?.note||"")}"></label>
+    ${e?.id?`<label>iPad暗証番号<span class="h">（${e.hasPin?"設定済み":"未設定"}。本人が設定できないときだけ、ここで4〜6桁を入れて保存）</span><input type="text" name="newpin" id="sPin" inputmode="numeric" maxlength="6" placeholder="空欄なら変更しない"></label>`:""}
     <div class="row"><button class="btn" ${state.busy?"disabled":""}>${e?.id?"保存":"追加"}</button>${e?.id?`<button type="button" class="btn ghost" data-act="cancelEdit">キャンセル</button><button type="button" class="btn danger sm" data-act="delStaff" data-id="${esc(e.id)}">削除</button>`:""}</div>
   </form>
   <div class="hint" style="margin-top:14px">スタッフ本人がLINEからこのページを開いて名前を登録すると、ここに自動で追加されLINE通知も届きます。先に経営者が追加した名前と本人の登録が重なった場合は、片方を「表示しない」にしてください。</div>
@@ -607,8 +622,16 @@ function vSettings(){
     <div class="kv"><label>タイムカードの刻み<select name="tcUnit" id="cTcUnit">${[15,30,60].map(u=>`<option value="${u}" ${(+S.tcUnit||30)===u?"selected":""}>${u}分</option>`).join("")}</select></label><label>丸め方<select name="tcMode" id="cTcMode">${Object.entries(TC_MODES).map(([k,v])=>`<option value="${k}" ${(S.tcMode||"nearest")===k?"selected":""}>${v}</option>`).join("")}</select></label></div>
     <div><div style="font-size:13px;font-weight:700;margin-bottom:6px">定休日</div><div class="row">${WD.map((w,i)=>`<label class="inline" style="font-weight:400;flex-direction:row;align-items:center;gap:4px"><input type="checkbox" name="closed${i}" id="closed${i}" ${(S.closed||[]).includes(i)?"checked":""}>${w}</label>`).join("")}<label class="inline" style="font-weight:700;flex-direction:row;align-items:center;gap:4px;margin-left:6px"><input type="checkbox" name="closedHol" id="closedHol" ${S.closedHol!==false?"checked":""}>祝日も定休日</label></div><p class="note" style="margin:4px 0 0">祝日は振替休日まで自動で判定します。</p></div>
     <label class="inline"><input type="checkbox" name="notifyWish" id="cNotifyWish" ${S.notifyWish!==false?"checked":""}>スタッフが希望を出したら管理者にLINEで知らせる</label>
+    <label class="inline"><input type="checkbox" name="phonePunch" id="cPhonePunch" ${S.phonePunch===true?"checked":""}>スマホのLINEからも出勤・退勤を押せるようにする<span class="h">（オフなら店舗iPadだけ）</span></label>
+    <label class="inline"><input type="checkbox" name="kioskPin" id="cKioskPin" ${S.kioskPin!==false?"checked":""}>店舗iPadでの打刻に本人の暗証番号を求める</label>
     <button class="btn" ${state.busy?"disabled":""}>設定を保存</button>
-  </form></section>`;
+  </form></section>
+  <section class="card"><h2>店舗端末（iPad）<small>${Store.devices.length}台</small></h2>
+    <p class="note">店に置くiPadで <b>https://sakai4528.github.io/rinoa-shift/kiosk.html</b> を開き、下の端末コードを入れると打刻専用の画面になります。LINEも管理画面もその端末には表示されません。コードは他人に見せないでください。</p>
+    <div class="people" style="margin:10px 0">${Store.devices.map(d=>`<div class="stf"><div><div class="nm">${esc(d.name)}</div><div class="mt">端末コード <b style="font-family:ui-monospace,Menlo,monospace;letter-spacing:.08em;color:var(--ink)">${esc(d.key)}</b>　${d.lastSeen?`最終接続 ${esc(String(d.lastSeen).slice(0,16).replace("T"," "))}`:"未接続"}</div></div><button class="btn danger sm" data-act="delDevice" data-id="${esc(d.id)}">無効にする</button></div>`).join("")||'<div class="note">まだ端末コードがありません。</div>'}</div>
+    <form class="f" id="devf"><div class="row"><input type="text" name="name" id="devName" placeholder="端末名（例：店舗iPad）" maxlength="20" style="border:1px solid var(--line);border-radius:8px;padding:9px 12px;background:var(--bg);min-height:42px;flex:1;min-width:160px"><button class="btn" ${state.busy?"disabled":""}>端末コードを発行</button></div></form>
+    <div class="hint" style="margin-top:10px">iPadの「設定 → アクセシビリティ → アクセスガイド」をオンにして、Safariでこの画面を開いたままサイドボタンを3回押すと、他のアプリに切り替えられない打刻専用機になります。</div>
+  </section>`;
 }
 
 /* ============================================================
@@ -618,7 +641,7 @@ function go(){ render(); }
 function setMonth(n){ state.month=addMonth(state.month,n); state.selDay=null; state.sheetDay=null; state.lineText=null; go(); }
 function writeCells(mut){ const sh={...Store.shiftOf(state.month)}; sh.cells={...sh.cells}; mut(sh.cells); Store.setShiftLocal(sh); }
 async function busy(fn){ if(state.busy) return; state.busy=true; go(); try{ await fn(); }catch(e){ toast(errMsg(e)); } state.busy=false; go(); }
-function errMsg(e){ const m=String(e&&e.message||e); return ({closed:"受付は締め切られています",forbidden:"この操作は管理者のみです",not_registered:"先に名前を登録してください",already_in:"すでに出勤しています",not_in:"出勤が押されていません",bad_pin:"暗証番号が違います"})[m]||("エラー："+m); }
+function errMsg(e){ const m=String(e&&e.message||e); return ({closed:"受付は締め切られています",forbidden:"この操作は管理者のみです",not_registered:"先に名前を登録してください",already_in:"すでに出勤しています",not_in:"出勤が押されていません",bad_pin:"暗証番号が違います",bad_pin_format:"暗証番号は4〜6桁の数字にしてください",phone_punch_disabled:"出勤・退勤は店内のiPadで押してください",pin_not_set:"先に暗証番号を設定してください",bad_staff:"スタッフが見つかりません"})[m]||("エラー："+m); }
 
 app.addEventListener("click", async e=>{
   const t=e.target.closest("[data-act]"); if(!t) return;
@@ -653,6 +676,7 @@ app.addEventListener("click", async e=>{
     case "tcText": state.lineText=buildTcText(); go(); break;
     case "closeLine": state.lineText=null; go(); break;
     case "copyLine": { const txt=state.lineText||""; try{ await navigator.clipboard.writeText(txt); toast("コピーしました。LINEに貼り付けてください"); }catch(err){ const el=$("#lineTxt"); if(el){ const r=document.createRange(); r.selectNodeContents(el); const sel=getSelection(); sel.removeAllRanges(); sel.addRange(r); } toast("長押しでコピーしてください"); } break; }
+    case "delDevice": { if(t.dataset.sure!=="1"){ t.dataset.sure="1"; t.textContent="本当に無効にする（もう一度タップ）"; break; } await busy(async()=>{ await Store.deleteDevice(t.dataset.id); toast("端末コードを無効にしました"); }); break; }
     case "editStaff": state.editStaff=Store.staff.find(s=>s.id===t.dataset.id)||null; go(); $("#sName")?.focus(); break;
     case "cancelEdit": state.editStaff=null; go(); break;
     case "delStaff": { if(t.dataset.sure!=="1"){ t.dataset.sure="1"; t.textContent="本当に削除（もう一度タップ）"; break; } await busy(async()=>{ await Store.deleteStaff(t.dataset.id); state.editStaff=null; toast("削除しました"); }); break; }
@@ -681,15 +705,18 @@ app.addEventListener("input", e=>{ if(e.target.id==="wMemo"){ state.draftWish.me
 app.addEventListener("submit", async e=>{
   e.preventDefault(); const f=e.target, fd=new FormData(f), S=Store.settings;
   if(f.id==="regf"){ const name=(fd.get("name")||"").trim(); if(!name){ $("#regerr").textContent="お名前を入れてください"; return; } await busy(async()=>{ await Store.register(name); toast(`${name}さん、登録しました`); }); }
+  if(f.id==="pinset"){ const pin=String(fd.get("pin")||"").trim(); if(!/^\d{4,6}$/.test(pin)){ toast("暗証番号は4〜6桁の数字にしてください"); return; } await busy(async()=>{ await Store.setPin(pin); toast("暗証番号を設定しました。店舗iPadで使えます"); }); }
+  if(f.id==="devf"){ const name=String(fd.get("name")||"").trim()||"店舗iPad"; await busy(async()=>{ await Store.createDevice(name); toast("端末コードを発行しました"); }); }
   if(f.id==="pinf"){ await busy(async()=>{ await Store.adminLogin(String(fd.get("pin")||"")); state.role="admin"; toast("管理者として登録しました"); }); }
   if(f.id==="stf"){
     const id=fd.get("id")||("s_"+Date.now().toString(36)); const prev=Store.staff.find(s=>s.id===id)||{};
     const s={id,name:(fd.get("name")||"").trim(),short:(fd.get("short")||"").trim(),emp:fd.get("emp")||"",order:+fd.get("order")||99,active:!!fd.get("active"),note:fd.get("note")||""};
-    if(!s.name) return; await busy(async()=>{ await Store.upsertStaff(s); state.editStaff=null; toast(prev.id?"保存しました":"追加しました"); });
+    const newpin=String(fd.get("newpin")||"").trim();
+    if(!s.name) return; await busy(async()=>{ await Store.upsertStaff(s); if(newpin){ if(!/^\d{4,6}$/.test(newpin)) throw new Error("bad_pin_format"); await Store.resetPin(s.id,newpin); } state.editStaff=null; toast(prev.id?"保存しました":"追加しました"); });
   }
   if(f.id==="setf"){
     const required=WD.map((_,i)=>+fd.get("req"+i)||0), closed=WD.map((_,i)=>fd.get("closed"+i)?i:-1).filter(i=>i>=0);
-    const patch={name:(fd.get("name")||"").trim()||S.name,eyebrow:fd.get("eyebrow")||"",openStart:fd.get("openStart")||S.openStart,openEnd:fd.get("openEnd")||S.openEnd,deadlineDay:Math.min(28,Math.max(1,+fd.get("deadlineDay")||20)),required,closed,closedHol:!!fd.get("closedHol"),tcUnit:+fd.get("tcUnit")||30,tcMode:TC_MODES[fd.get("tcMode")]?fd.get("tcMode"):"nearest",notifyWish:!!fd.get("notifyWish")};
+    const patch={name:(fd.get("name")||"").trim()||S.name,eyebrow:fd.get("eyebrow")||"",openStart:fd.get("openStart")||S.openStart,openEnd:fd.get("openEnd")||S.openEnd,deadlineDay:Math.min(28,Math.max(1,+fd.get("deadlineDay")||20)),required,closed,closedHol:!!fd.get("closedHol"),tcUnit:+fd.get("tcUnit")||30,tcMode:TC_MODES[fd.get("tcMode")]?fd.get("tcMode"):"nearest",notifyWish:!!fd.get("notifyWish"),phonePunch:!!fd.get("phonePunch"),kioskPin:!!fd.get("kioskPin")};
     const pin=String(fd.get("pin")||"").trim(); if(pin) patch.pin=pin;
     await busy(async()=>{ await Store.saveSettings(patch); toast("設定を保存しました"); });
   }

@@ -12,7 +12,7 @@
  *   4. デプロイ → 新しいデプロイ → ウェブアプリ（実行ユーザー: 自分 / アクセス: 全員）
  */
 
-const VERSION = "2026-10-26.1";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
+const VERSION = "2026-10-26.2";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
 const TZ = "Asia/Tokyo";
 const PROP = PropertiesService.getScriptProperties();
 
@@ -22,16 +22,19 @@ const DEFAULT_SETTINGS = {
   required: [2, 2, 2, 2, 2, 3, 3],
   closed: [], closedHol: true,
   tcUnit: 30, tcMode: "nearest",
-  notifyWish: true
+  notifyWish: true,
+  phonePunch: false,     // スマホ（LINE）からの打刻を許可するか。標準は店舗端末（iPad）のみ
+  kioskPin: true         // 店舗端末での打刻に本人の暗証番号を求める
 };
 
 const SHEETS = {
   settings:  ["key", "value"],
-  staff:     ["id", "name", "short", "emp", "order", "active", "userId", "note", "createdAt"],
+  staff:     ["id", "name", "short", "emp", "order", "active", "userId", "note", "createdAt", "pin"],
   shifts:    ["month", "status", "publishedAt", "cells"],
   wishes:    ["month", "staffId", "days", "memo", "updatedAt"],
   timecards: ["month", "staffId", "days"],
   admins:    ["userId", "name", "addedAt"],
+  devices:   ["id", "name", "key", "createdAt", "lastSeen"],
   log:       ["at", "userId", "action", "detail"]
 };
 const JSON_COLS = { settings: ["value"], shifts: ["cells"], wishes: ["days"], timecards: ["days"] };
@@ -47,6 +50,11 @@ function doPost(e) {
   let body = {};
   try { body = JSON.parse(e.postData.contents); } catch (err) { return json_({ ok: false, error: "bad_request" }); }
   try {
+    if (body.deviceKey) {
+      const device = verifyDevice_(body.deviceKey);
+      const res = handleDevice_(body.action, body.data || {}, device);
+      return json_(Object.assign({ ok: true }, res));
+    }
     const auth = verifyUser_(body.accessToken);
     const res = handle_(body.action, body.data || {}, auth);
     return json_(Object.assign({ ok: true }, res));
@@ -105,6 +113,7 @@ function handle_(action, data, auth) {
         staff: staff.map(s => publicStaff_(s, isAdmin)),
         me: me ? publicStaff_(me, true) : null,
         isAdmin,
+        devices: isAdmin ? readAll_("devices").map(d => ({ id: d.id, name: d.name, key: d.key, createdAt: d.createdAt, lastSeen: d.lastSeen })) : [],
         liffUrl: PROP.getProperty("LIFF_URL") || "",
         months: monthsFor_(data.months || [], me, isAdmin)
       };
@@ -142,30 +151,45 @@ function handle_(action, data, auth) {
 
     case "punch": {
       needMe();
-      const now = new Date();
-      const today = fmt_(now, "yyyy-MM-dd");
-      const month = today.slice(0, 7);
-      const stamp = fmt_(now, "yyyy-MM-dd'T'HH:mm");
-      let tcMonth = month, day = String(+today.slice(8));
-      if (data.type === "fixOut") { tcMonth = ym_(data.month); day = String(+data.day); }
-      const doc = readAll_("timecards").find(r => r.month === tcMonth && r.staffId === me.id) || { month: tcMonth, staffId: me.id, days: {} };
-      doc.days = doc.days || {};
-      if (data.type === "in") {
-        if (doc.days[day] && doc.days[day].in) throw new Error("already_in");
-        doc.days[day] = { in: stamp, brk: 0 };
-      } else if (data.type === "out") {
-        const r = doc.days[day];
-        if (!r || !r.in) throw new Error("not_in");
-        r.out = stamp; r.brk = Math.max(0, +data.brk || 0);
-      } else if (data.type === "fixOut") {
-        const r = doc.days[day];
-        if (!r || !r.in) throw new Error("not_in");
-        if (!/^\d{2}:\d{2}$/.test(String(data.hm || ""))) throw new Error("bad_time");
-        r.out = r.in.slice(0, 10) + "T" + data.hm; r.manual = true;
-      } else throw new Error("bad_type");
-      upsert_("timecards", ["month", "staffId"], doc);
-      log_(auth, "punch:" + data.type, tcMonth + "/" + day);
-      return { timecard: doc, serverTime: stamp };
+      if ((data.type === "in" || data.type === "out") && !settings.phonePunch && !isAdmin) throw new Error("phone_punch_disabled");
+      const r = punch_(me, data, "phone");
+      log_(auth, "punch:" + data.type, r.timecard.month);
+      return r;
+    }
+
+    case "setPin": {
+      needMe();
+      const pin = String(data.pin || "");
+      if (!/^\d{4,6}$/.test(pin)) throw new Error("bad_pin_format");
+      upsert_("staff", ["id"], Object.assign({}, me, { pin: pinHash_(me.id, pin) }));
+      log_(auth, "setPin", me.id);
+      return { me: publicStaff_(Object.assign({}, me, { pin: "set" }), true) };
+    }
+
+    case "resetPin": {
+      needAdmin();
+      const s = staff.find(x => x.id === data.staffId); if (!s) throw new Error("bad_staff");
+      const pin = data.pin ? String(data.pin) : "";
+      if (pin && !/^\d{4,6}$/.test(pin)) throw new Error("bad_pin_format");
+      upsert_("staff", ["id"], Object.assign({}, s, { pin: pin ? pinHash_(s.id, pin) : "" }));
+      log_(auth, "resetPin", s.id);
+      return { staff: readAll_("staff").map(x => publicStaff_(x, true)) };
+    }
+
+    case "createDevice": {
+      needAdmin();
+      const seg = () => { const cs = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; let o = ""; for (let i = 0; i < 4; i++) o += cs[Math.floor(Math.random() * cs.length)]; return o; };
+      const dev = { id: "d_" + Date.now().toString(36), name: String(data.name || "店舗iPad").slice(0, 20), key: "RINOA-" + seg() + "-" + seg(), createdAt: nowStr_(), lastSeen: "" };
+      upsert_("devices", ["id"], dev);
+      log_(auth, "createDevice", dev.name);
+      return { devices: readAll_("devices") };
+    }
+
+    case "deleteDevice": {
+      needAdmin();
+      remove_("devices", r => r.id === data.id);
+      log_(auth, "deleteDevice", data.id);
+      return { devices: readAll_("devices") };
     }
 
     case "adminLogin": {
@@ -233,6 +257,85 @@ function handle_(action, data, auth) {
   }
 }
 
+/* ============================================================
+   店舗端末（iPad）：端末コードで認証。見えるのは打刻に必要な情報だけ
+   ============================================================ */
+function verifyDevice_(key) {
+  const dev = readAll_("devices").find(d => d.key && String(d.key) === String(key).trim().toUpperCase());
+  if (!dev) throw new Error("bad_device");
+  return dev;
+}
+function todayStatus_(staff) {
+  const now = new Date(), today = fmt_(now, "yyyy-MM-dd"), month = today.slice(0, 7), day = String(+today.slice(8));
+  const tcs = readAll_("timecards").filter(r => r.month === month);
+  const shift = readAll_("shifts").find(r => r.month === month);
+  const out = {};
+  staff.forEach(s => {
+    const t = tcs.find(r => r.staffId === s.id); const rec = t && t.days && t.days[day];
+    const cell = shift && shift.status === "published" && shift.cells ? shift.cells[day + "_" + s.id] || "" : "";
+    out[s.id] = { in: rec && rec.in ? rec.in.slice(11, 16) : "", out: rec && rec.out ? rec.out.slice(11, 16) : "", brk: rec ? (+rec.brk || 0) : 0, sched: cell };
+  });
+  return { date: today, status: out, serverTime: fmt_(now, "HH:mm") };
+}
+function handleDevice_(action, data, device) {
+  const settings = getSettings_();
+  const staff = readAll_("staff").filter(s => s.active !== false && s.active !== "FALSE");
+  try { upsert_("devices", ["id"], Object.assign({}, device, { lastSeen: nowStr_() })); } catch (e) { /* 任意 */ }
+  switch (action) {
+    case "kioskBootstrap":
+    case "kioskStatus": {
+      const st = todayStatus_(staff);
+      return {
+        version: VERSION, device: { id: device.id, name: device.name },
+        settings: { name: settings.name, eyebrow: settings.eyebrow, openStart: settings.openStart, openEnd: settings.openEnd, tcUnit: settings.tcUnit, tcMode: settings.tcMode, kioskPin: settings.kioskPin !== false },
+        staff: staff.map(s => ({ id: s.id, name: s.name, short: s.short || "", order: +s.order || 99, hasPin: !!s.pin })).sort((a, b) => a.order - b.order),
+        today: st
+      };
+    }
+    case "kioskPunch": {
+      const s = staff.find(x => x.id === data.staffId); if (!s) throw new Error("bad_staff");
+      if (settings.kioskPin !== false) {
+        if (!s.pin) throw new Error("pin_not_set");
+        if (pinHash_(s.id, String(data.pin || "")) !== s.pin) throw new Error("bad_pin");
+      }
+      if (data.type !== "in" && data.type !== "out") throw new Error("bad_type");
+      const r = punch_(s, data, "kiosk:" + device.id);
+      log_({ userId: "device:" + device.id }, "kioskPunch:" + data.type, s.name);
+      return Object.assign(r, { today: todayStatus_(staff) });
+    }
+    default: throw new Error("unknown_action");
+  }
+}
+function pinHash_(sid, pin) {
+  return Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, sid + ":" + pin));
+}
+/** 打刻の本体（スマホ・店舗端末 共通） */
+function punch_(staffRow, data, via) {
+  const now = new Date();
+  const today = fmt_(now, "yyyy-MM-dd");
+  const month = today.slice(0, 7);
+  const stamp = fmt_(now, "yyyy-MM-dd'T'HH:mm");
+  let tcMonth = month, day = String(+today.slice(8));
+  if (data.type === "fixOut") { tcMonth = ym_(data.month); day = String(+data.day); }
+  const doc = readAll_("timecards").find(r => r.month === tcMonth && r.staffId === staffRow.id) || { month: tcMonth, staffId: staffRow.id, days: {} };
+  doc.days = doc.days || {};
+  if (data.type === "in") {
+    if (doc.days[day] && doc.days[day].in) throw new Error("already_in");
+    doc.days[day] = { in: stamp, brk: 0, via };
+  } else if (data.type === "out") {
+    const r = doc.days[day];
+    if (!r || !r.in) throw new Error("not_in");
+    r.out = stamp; r.brk = Math.max(0, +data.brk || 0); r.viaOut = via;
+  } else if (data.type === "fixOut") {
+    const r = doc.days[day];
+    if (!r || !r.in) throw new Error("not_in");
+    if (!/^\d{2}:\d{2}$/.test(String(data.hm || ""))) throw new Error("bad_time");
+    r.out = r.in.slice(0, 10) + "T" + data.hm; r.manual = true;
+  } else throw new Error("bad_type");
+  upsert_("timecards", ["month", "staffId"], doc);
+  return { timecard: doc, serverTime: stamp };
+}
+
 /* ---------- 月データ ---------- */
 function monthsFor_(months, me, isAdmin) {
   const out = {};
@@ -251,7 +354,7 @@ function monthsFor_(months, me, isAdmin) {
 
 function publicSettings_(s) { const o = Object.assign({}, s); delete o.pin; return o; }
 function publicStaff_(s, full) {
-  const o = { id: s.id, name: s.name, short: s.short || "", emp: s.emp || "", order: +s.order || 99, active: s.active !== false && s.active !== "FALSE", linked: !!s.userId };
+  const o = { id: s.id, name: s.name, short: s.short || "", emp: s.emp || "", order: +s.order || 99, active: s.active !== false && s.active !== "FALSE", linked: !!s.userId, hasPin: !!s.pin };
   if (full) { o.note = s.note || ""; o.userId = s.userId || ""; }
   return o;
 }
@@ -269,6 +372,8 @@ function sanitizeSettings_(s) {
   if ([15, 30, 60].includes(+s.tcUnit)) o.tcUnit = +s.tcUnit;
   if (["nearest", "floor", "ceil", "favor"].includes(s.tcMode)) o.tcMode = s.tcMode;
   if (s.notifyWish !== undefined) o.notifyWish = !!s.notifyWish;
+  if (s.phonePunch !== undefined) o.phonePunch = !!s.phonePunch;
+  if (s.kioskPin !== undefined) o.kioskPin = !!s.kioskPin;
   return o;
 }
 
@@ -357,7 +462,10 @@ function ss_() {
 function getSheet_(name) {
   const ss = ss_();
   let sh = ss.getSheetByName(name);
-  if (!sh) { sh = ss.insertSheet(name); sh.appendRow(SHEETS[name]); sh.setFrozenRows(1); }
+  if (!sh) { sh = ss.insertSheet(name); sh.appendRow(SHEETS[name]); sh.setFrozenRows(1); return sh; }
+  const want = SHEETS[name];
+  const have = sh.getLastColumn() ? sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0] : [];
+  if (want.some((h, i) => have[i] !== h)) sh.getRange(1, 1, 1, want.length).setValues([want]);   // 列が増えたとき見出しをそろえる
   return sh;
 }
 function readAll_(name) {
