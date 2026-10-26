@@ -12,7 +12,7 @@
  *   4. デプロイ → 新しいデプロイ → ウェブアプリ（実行ユーザー: 自分 / アクセス: 全員）
  */
 
-const VERSION = "2026-10-26.2";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
+const VERSION = "2026-10-26.3";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
 const TZ = "Asia/Tokyo";
 const PROP = PropertiesService.getScriptProperties();
 
@@ -301,7 +301,10 @@ function handleDevice_(action, data, device) {
       if (data.type !== "in" && data.type !== "out") throw new Error("bad_type");
       const r = punch_(s, data, "kiosk:" + device.id);
       log_({ userId: "device:" + device.id }, "kioskPunch:" + data.type, s.name);
-      return Object.assign(r, { today: todayStatus_(staff) });
+      const today = todayStatus_(staff);
+      const day = String(+fmt_(new Date(), "dd")); const rec = (r.timecard.days || {})[day];
+      if (rec && today.status[s.id]) { today.status[s.id].in = rec.in ? rec.in.slice(11, 16) : ""; today.status[s.id].out = rec.out ? rec.out.slice(11, 16) : ""; today.status[s.id].brk = +rec.brk || 0; }
+      return Object.assign(r, { today });
     }
     default: throw new Error("unknown_action");
   }
@@ -495,9 +498,10 @@ function upsert_(name, keys, obj) {
     const row = head.map(h => { let v = obj[h]; if (v === undefined || v === null) v = ""; if (jc.includes(h)) v = JSON.stringify(v); if (typeof v === "boolean") v = v ? "TRUE" : "FALSE"; return v; });
     const vals = sh.getDataRange().getValues();
     for (let i = 1; i < vals.length; i++) {
-      if (keys.every(k => String(vals[i][head.indexOf(k)]) === String(obj[k]))) { sh.getRange(i + 1, 1, 1, head.length).setValues([row]); return; }
+      if (keys.every(k => String(vals[i][head.indexOf(k)]) === String(obj[k]))) { sh.getRange(i + 1, 1, 1, head.length).setValues([row]); SpreadsheetApp.flush(); return; }
     }
     sh.appendRow(row);
+    SpreadsheetApp.flush();   // 直後に読み直しても書き込み後の値が返るように確定させる
   } finally { lock.releaseLock(); }
 }
 function remove_(name, pred) {
@@ -506,6 +510,7 @@ function remove_(name, pred) {
     const sh = getSheet_(name);
     const rows = readAll_(name);
     for (let i = rows.length - 1; i >= 0; i--) { if (pred(rows[i])) sh.deleteRow(i + 2); }
+    SpreadsheetApp.flush();
   } finally { lock.releaseLock(); }
 }
 function getSettings_() {

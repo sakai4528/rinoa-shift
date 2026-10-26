@@ -176,7 +176,10 @@ function bindModal(){
     const D=S.data, s=D.staff.find(x=>x.id===S.modal.id), x=D.today.status[s.id]||{}, type=x.in?"out":"in";
     if(D.settings.kioskPin && S.pin.length<4){ toast("暗証番号を入力してください","ng"); return; }
     S.busy=true; go.disabled=true;
-    try{ const r=await api("kioskPunch",{staffId:s.id,type,pin:S.pin,brk:+($("#brk")?.value||0)}); S.data.today=r.today; S.modal=null; S.pin="";
+    try{ const r=await api("kioskPunch",{staffId:s.id,type,pin:S.pin,brk:+($("#brk")?.value||0)}); S.data.today=r.today;
+      // 画面は、サーバーが書き込んだ本日の記録そのものから更新する（読み直しの遅れに左右されない）
+      const day=String(new Date().getDate()), rec=(r.timecard&&r.timecard.days||{})[day]; if(rec){ const st=S.data.today.status[s.id]||{}; S.data.today.status[s.id]={...st,in:rec.in?rec.in.slice(11,16):"",out:rec.out?rec.out.slice(11,16):"",brk:+rec.brk||0}; }
+      setTimeout(load,3000); S.modal=null; S.pin="";
       toast(`${s.name} さん　${type==="in"?"出勤":"退勤"}しました`,"ok",`${dropZero(r.serverTime.slice(11))}　${type==="in"?"いってらっしゃい":"お疲れさまでした"}`); }
     catch(e){ toast(errMsg(e),"ng"); S.pin=""; }
     S.busy=false; render();
