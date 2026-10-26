@@ -14,7 +14,7 @@
  *   4. デプロイ → 新しいデプロイ → ウェブアプリ（実行ユーザー: 自分 / アクセス: 全員）
  */
 
-const VERSION = "2026-10-27.1";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
+const VERSION = "2026-10-27.2";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
 const TZ = "Asia/Tokyo";
 const PROP = PropertiesService.getScriptProperties();
 
@@ -29,7 +29,8 @@ const DEFAULT_SETTINGS = {
   kioskPin: true,        // 店舗端末での打刻に本人の暗証番号を求める
   remind: true,          // 出勤の前の日のお昼12時に本人へ知らせる
   nightPremium: 0.25,    // 夜10時〜朝5時の割増
-  saleKinds: ["シャンパン", "ワイン"]
+  saleKinds: ["シャンパン", "ワイン"],
+  saleTax: 0.1           // ボトルの値段は税込みで入れる。歩合は税抜き（税込み÷1.1）に掛ける
 };
 const DAY_START_HOUR = 6;   // 朝6時までは前の日の営業として扱う
 
@@ -340,7 +341,7 @@ function handle_(action, data, auth) {
 /* ============================================================
    お給料の見込み
    時間：打刻（丸め後・休憩を引く）があればそれ、なければ公開済みシフトの予定
-   金額：時給×時間 ＋ 時給×割増×夜10時〜朝5時の時間 ＋ ボトル売上（税込）×歩合
+   金額：時給×時間 ＋ 時給×割増×夜10時〜朝5時の時間 ＋ ボトル売上の税抜き（税込÷1.1）×歩合
    ============================================================ */
 function bottlesOf_(month) {
   return readAll_("bottles").filter(b => String(b.date).slice(0, 7) === month && !isTrue_(b.deleted))
@@ -382,6 +383,7 @@ function cellMins_(val, S) {
 function computePay_(month) {
   const S = getSettings_();
   const prem = S.nightPremium === undefined ? 0.25 : +S.nightPremium;
+  const tax = S.saleTax === undefined ? 0.1 : +S.saleTax;
   const staff = readAll_("staff");
   const tcs = readAll_("timecards").filter(r => r.month === month);
   const sh = readAll_("shifts").find(r => r.month === month);
@@ -401,19 +403,20 @@ function computePay_(month) {
     const mine = bottles.filter(b => b.staffId === s.id);
     const salesTotal = mine.reduce((t, b) => t + b.price * b.qty, 0);
     const wagePay = Math.round(wage * mins / 60 + wage * prem * night / 60);
-    const commission = Math.round(salesTotal * rate);
+    const salesNet = Math.round(salesTotal / (1 + tax));
+    const commission = Math.round(salesNet * rate);
     return { staffId: s.id, name: s.name, days, hours: Math.round(mins / 6) / 10, nightHours: Math.round(night / 6) / 10, planHours: Math.round(planMins / 6) / 10,
-      wage, rate, wagePay, salesTotal, bottles: mine.reduce((t, b) => t + b.qty, 0), commission, total: wagePay + commission };
+      wage, rate, wagePay, salesTotal, salesNet, bottles: mine.reduce((t, b) => t + b.qty, 0), commission, total: wagePay + commission };
   }).filter(r => r.days || r.salesTotal);
   const sum = k => rows.reduce((t, r) => t + r[k], 0);
   return { month, staff: rows, fixed: sum("wagePay"), variable: sum("commission"), total: sum("total"), hours: Math.round(sum("hours") * 10) / 10, salesTotal: sum("salesTotal"),
-    noWage: rows.filter(r => r.hours && !r.wage).map(r => r.name), nightPremium: prem, basis: "シフト表からの見込み（打刻があれば打刻、なければ公開済みシフトの予定）。freeeの給与とは別" };
+    salesNet: sum("salesNet"), saleTax: tax, noWage: rows.filter(r => r.hours && !r.wage).map(r => r.name), nightPremium: prem, basis: "シフト表からの見込み（打刻があれば打刻、なければ公開済みシフトの予定）。freeeの給与とは別" };
 }
 // 経営ボード（rinoa-order）が読むシート。fixed＝時給の分（固定費）、variable＝歩合の分（変動費）
 function savePayroll_(month) {
   const p = computePay_(month);
   upsert_("payroll", ["month"], { month, fixed: p.fixed, variable: p.variable, total: p.total, hours: p.hours, salesTotal: p.salesTotal, basis: p.basis, updatedAt: nowStr_(),
-    detail: p.staff.map(r => ({ name: r.name, hours: r.hours, nightHours: r.nightHours, wagePay: r.wagePay, salesTotal: r.salesTotal, commission: r.commission, total: r.total })) });
+    detail: p.staff.map(r => ({ name: r.name, hours: r.hours, nightHours: r.nightHours, wagePay: r.wagePay, salesTotal: r.salesTotal, salesNet: r.salesNet, commission: r.commission, total: r.total })) });
   return p;
 }
 function payrollJob() {

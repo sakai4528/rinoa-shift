@@ -215,7 +215,7 @@ const CONFIG = {
 /* ============================================================
    共通
    ============================================================ */
-const SERVER_VERSION="2026-10-27.1";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
+const SERVER_VERSION="2026-10-27.2";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
 const TC_MODES={nearest:"四捨五入（15分未満は切り捨て、15分以上は30分扱い）",floor:"すべて切り捨て",ceil:"すべて切り上げ",favor:"出勤は切り上げ・退勤は切り捨て"};
 const WD = ["日","月","火","水","木","金","土"];
 const pad = n => String(n).padStart(2,"0");
@@ -548,7 +548,7 @@ function vBottle(m){
       <button class="btn block" ${state.busy?"disabled":""}>記録する</button>
     </form></section>
   <section class="card">${vMonthNav("bm",ym,"のボトル")}
-    <div class="sum" style="margin:10px 0"><div><b>${list?list.reduce((t,b)=>t+b.qty,0):"…"}</b><span>本数</span></div><div><b>${yen(total)}</b><span>売上（税込）</span></div><div><b>${rate?yen(total*rate):"—"}</b><span>歩合${rate?` ${pct(rate)}%`:""}の見込み</span></div></div>
+    <div class="sum" style="margin:10px 0"><div><b>${list?list.reduce((t,b)=>t+b.qty,0):"…"}</b><span>本数</span></div><div><b>${yen(total)}</b><span>売上（税込）</span></div><div><b>${rate?yen(Math.round(total/(1+(+(S.saleTax??0.1))))*rate):"—"}</b><span>歩合${rate?` ${pct(rate)}%`:""}の見込み（税抜きで計算）</span></div></div>
     ${list?(list.length?list.map(b=>`<div class="btl"><div class="b"><b>${+b.date.slice(5,7)}/${+b.date.slice(8)}</b> ${esc(b.kind)}${b.item?"・"+esc(b.item):""}${b.qty>1?` ×${b.qty}`:""}<div class="note" style="margin:0">${b.checked?"確認済み":"未確認"}</div></div><span class="amt">${yen(b.price*b.qty)}</span>${b.checked?"":`<button class="btn ghost sm" data-act="bDel" data-id="${esc(b.id)}">消す</button>`}</div>`).join(""):'<div class="note">この月の記録はまだありません。</div>'):'<div class="note">読み込み中…</div>'}
     <p class="note" style="margin-top:8px">確認済みの記録は、直したいときは経営者に伝えてください。</p>
   </section>`;
@@ -562,9 +562,9 @@ function vPay(){
     <div class="sum" style="margin:10px 0"><div><b>${yen(p.fixed)}</b><span>時給の分</span></div><div><b>${yen(p.variable)}</b><span>歩合の分</span></div><div><b>${yen(p.total)}</b><span>合計</span></div></div>
     ${p.noWage&&p.noWage.length?`<div class="warnbox" style="margin-bottom:10px"><b>時給が入っていない人がいます：</b>${p.noWage.map(esc).join("、")}<br>「スタッフ」の編集で時給を入れてください。</div>`:""}
     <div class="tbl"><table class="list"><thead><tr><th>スタッフ</th><th class="num">日数</th><th class="num">時間</th><th class="num">うち夜10時〜</th><th class="num">時給</th><th class="num">時給の分</th><th class="num">ボトル</th><th class="num">歩合</th><th class="num">合計</th></tr></thead><tbody>
-    ${p.staff.map(r=>`<tr><td><b>${esc(r.name)}</b>${r.planHours?`<div class="note" style="margin:0">うち予定 ${fmtH(r.planHours)}h</div>`:""}</td><td class="num">${r.days}</td><td class="num">${fmtH(r.hours)}</td><td class="num">${fmtH(r.nightHours)}</td><td class="num">${r.wage?yen(r.wage):'<span style="color:var(--warn)">未</span>'}</td><td class="num">${yen(r.wagePay)}</td><td class="num">${r.salesTotal?yen(r.salesTotal):"—"}</td><td class="num">${r.commission?yen(r.commission)+`<div class="note" style="margin:0">${pct(r.rate)}%</div>`:"—"}</td><td class="num"><b>${yen(r.total)}</b></td></tr>`).join("")||'<tr><td colspan="9" class="note">この月はまだ勤務もボトルもありません</td></tr>'}
+    ${p.staff.map(r=>`<tr><td><b>${esc(r.name)}</b>${r.planHours?`<div class="note" style="margin:0">うち予定 ${fmtH(r.planHours)}h</div>`:""}</td><td class="num">${r.days}</td><td class="num">${fmtH(r.hours)}</td><td class="num">${fmtH(r.nightHours)}</td><td class="num">${r.wage?yen(r.wage):'<span style="color:var(--warn)">未</span>'}</td><td class="num">${yen(r.wagePay)}</td><td class="num">${r.salesTotal?yen(r.salesTotal)+`<div class="note" style="margin:0">税抜 ${yen(r.salesNet)}</div>`:"—"}</td><td class="num">${r.commission?yen(r.commission)+`<div class="note" style="margin:0">${pct(r.rate)}%</div>`:"—"}</td><td class="num"><b>${yen(r.total)}</b></td></tr>`).join("")||'<tr><td colspan="9" class="note">この月はまだ勤務もボトルもありません</td></tr>'}
     <tr><td><b>合計</b></td><td></td><td class="num"><b>${fmtH(p.hours)}</b></td><td></td><td></td><td class="num"><b>${yen(p.fixed)}</b></td><td class="num"><b>${yen(p.salesTotal)}</b></td><td class="num"><b>${yen(p.variable)}</b></td><td class="num"><b>${yen(p.total)}</b></td></tr></tbody></table></div>
-    <p class="note" style="margin-top:8px"><b>見込み</b>です。時間は打刻があれば打刻（${+Store.settings.tcUnit||30}分刻み・休憩を引く）、打刻がない日は公開済みシフトの予定を使います。夜10時〜朝5時は時給を${Math.round((p.nightPremium??.25)*100)}%増しで計算。歩合は下のボトル売上（税込）× その人の割合です。この数字は毎朝と、この画面を開いたときに「payroll」シートへ書き込まれ、経営ボードの人件費（見込み）に入ります。</p>`}
+    <p class="note" style="margin-top:8px"><b>見込み</b>です。時間は打刻があれば打刻（${+Store.settings.tcUnit||30}分刻み・休憩を引く）、打刻がない日は公開済みシフトの予定を使います。夜10時〜朝5時は時給を${Math.round((p.nightPremium??.25)*100)}%増しで計算。歩合は下のボトル売上（税込）を<b>税抜き（÷${1+(+(p.saleTax??0.1))}）</b>にしてから、その人の割合を掛けています。この数字は毎朝と、この画面を開いたときに「payroll」シートへ書き込まれ、経営ボードの人件費（見込み）に入ります。</p>`}
   </section>
   <section class="card"><h2>ボトル売上<small>${bl?bl.length+"件":""}</small></h2>
     <p class="note">左のチェックは「確認しました」の印です。確認済みは本人から直せなくなります。代わりに入れるときは「希望一覧」の「代理入力」→「ボトル」から。</p>
