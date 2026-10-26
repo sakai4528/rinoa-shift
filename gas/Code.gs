@@ -12,6 +12,7 @@
  *   4. デプロイ → 新しいデプロイ → ウェブアプリ（実行ユーザー: 自分 / アクセス: 全員）
  */
 
+const VERSION = "2026-10-26.1";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
 const TZ = "Asia/Tokyo";
 const PROP = PropertiesService.getScriptProperties();
 
@@ -39,7 +40,7 @@ const JSON_COLS = { settings: ["value"], shifts: ["cells"], wishes: ["days"], ti
    HTTP 入口
    ============================================================ */
 function doGet() {
-  return json_({ ok: true, service: "rinoa-shift", time: nowStr_() });
+  return json_({ ok: true, service: "rinoa-shift", version: VERSION, time: nowStr_() });
 }
 
 function doPost(e) {
@@ -98,6 +99,7 @@ function handle_(action, data, auth) {
   switch (action) {
     case "bootstrap": {
       return {
+        version: VERSION,
         profile: { userId: auth.userId, name: auth.name },
         settings: publicSettings_(settings),
         staff: staff.map(s => publicStaff_(s, isAdmin)),

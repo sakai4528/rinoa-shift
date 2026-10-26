@@ -208,6 +208,7 @@ const CONFIG = {
 /* ============================================================
    共通
    ============================================================ */
+const SERVER_VERSION="2026-10-26.1";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
 const TC_MODES={nearest:"四捨五入（15分未満は切り捨て、15分以上は30分扱い）",floor:"すべて切り捨て",ceil:"すべて切り上げ",favor:"出勤は切り上げ・退勤は切り捨て"};
 const WD = ["日","月","火","水","木","金","土"];
 const pad = n => String(n).padStart(2,"0");
@@ -285,7 +286,7 @@ function dayCounts(ym){
    Store：LIFF で本人確認し、Apps Script の API でやりとり
    ============================================================ */
 const Store = {
-  token:null, profile:null, me:null, isAdmin:false, liffUrl:"",
+  token:null, profile:null, me:null, isAdmin:false, liffUrl:"", serverVersion:"",
   settings:{name:"シフト表",eyebrow:"",deadlineDay:20,openStart:"11:00",openEnd:"18:00",required:[2,2,2,2,2,3,3],closed:[],closedHol:true,tcUnit:30,tcMode:"nearest"},
   staff:[], months:{}, loading:{}, listeners:[], ready:false, error:null, lastFetch:0, pendingSaves:0,
   on(fn){ this.listeners.push(fn); }, emit(){ this.listeners.forEach(f=>f()); },
@@ -308,7 +309,7 @@ const Store = {
   async bootstrap(){
     try{
       const j=await this.api("bootstrap",{months:this.wantMonths()});
-      this.profile=j.profile; this.settings={...this.settings,...j.settings}; this.staff=j.staff; this.me=j.me; this.isAdmin=j.isAdmin; this.liffUrl=j.liffUrl||"";
+      this.profile=j.profile; this.serverVersion=j.version||""; this.settings={...this.settings,...j.settings}; this.staff=j.staff; this.me=j.me; this.isAdmin=j.isAdmin; this.liffUrl=j.liffUrl||"";
       Object.assign(this.months,j.months); this.ready=true; this.error=null; this.lastFetch=Date.now();
     }catch(e){ this.error="データを読み込めませんでした。電波の良いところでもう一度開いてください。（"+(e.message||e)+"）"; }
     this.emit();
@@ -496,7 +497,8 @@ function vTcHistory(m){
 function vAdmin(){
   if(!Store.isAdmin) return `<section class="card"><h2>経営者用ログイン</h2><p class="note">暗証番号を入れると、このLINEアカウントが管理者として登録されます（次回から入力不要）。</p><form class="f" id="pinf" style="margin-top:8px"><label>暗証番号<input type="password" name="pin" id="pinInput" inputmode="numeric" autocomplete="off"></label><div class="err" id="perr"></div><button class="btn" ${state.busy?"disabled":""}>ログイン</button></form></section>`;
   const tabs=[["cal","シフト作成"],["tc","勤怠"],["wishes","希望一覧"],["staff","スタッフ"],["settings","設定"]];
-  return `<nav class="tabs">${tabs.map(([k,l])=>`<button data-act="atab" data-v="${k}" class="${state.atab===k?"on":""}">${l}</button>`).join("")}</nav>
+  const verWarn = Store.serverVersion!==SERVER_VERSION ? `<div class="warnbox" style="margin-bottom:10px"><b>Apps Script が古い版です。</b>画面は ${SERVER_VERSION}、サーバーは ${Store.serverVersion||"版情報なし（再デプロイ前）"}。スプレッドシート→拡張機能→Apps Script で最新のコードを貼り、「デプロイを管理」→ 鉛筆 →「新バージョン」→ デプロイ をしてください。</div>` : "";
+  return `<nav class="tabs">${tabs.map(([k,l])=>`<button data-act="atab" data-v="${k}" class="${state.atab===k?"on":""}">${l}</button>`).join("")}</nav>${verWarn}
   ${({cal:vAdminCal,tc:vTcAdmin,wishes:vWishList,staff:vStaffAdmin,settings:vSettings})[state.atab]()}`;
 }
 function vAdminCal(){
