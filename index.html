@@ -301,7 +301,7 @@ function dayCounts(ym){
 const Store = {
   token:null, profile:null, me:null, isAdmin:false, liffUrl:"", serverVersion:"", devices:[],
   settings:{name:"シフト表",eyebrow:"",deadlineDay:20,openStart:"11:00",openEnd:"18:00",required:[2,2,2,2,2,3,3],closed:[],closedHol:true,tcUnit:30,tcMode:"nearest"},
-  staff:[], months:{}, loading:{}, listeners:[], ready:false, error:null, lastFetch:0, pendingSaves:0, bottles:{}, pay:{},
+  staff:[], months:{}, loading:{}, listeners:[], ready:false, error:null, lastFetch:0, pendingSaves:0, bottles:{}, pay:{}, failed:{},
   on(fn){ this.listeners.push(fn); }, emit(){ this.listeners.forEach(f=>f()); },
   async init(){
     if(!CONFIG.liffId || CONFIG.liffId.includes("HERE") || !CONFIG.apiUrl || CONFIG.apiUrl.includes("HERE")){ this.error="設定が未入力です（index.html の CONFIG に LIFF ID と API の URL を入れてください）"; this.emit(); return; }
@@ -353,8 +353,9 @@ const Store = {
   async flushShift(){ const doc=this.dirtyShift; if(!doc) return; this.dirtyShift=null; try{ const j=await this.api("saveShift",{month:doc.month,status:doc.status,cells:doc.cells}); if(!this.dirtyShift) this.setMonthPart(doc.month,"shift",j.shift); }catch(e){ toast("保存できませんでした。通信を確認してください"); } this.pendingSaves=0; this.emit(); },
   async saveShiftNow(doc){ clearTimeout(this.saveTimer); this.dirtyShift=null; this.setMonthPart(doc.month,"shift",doc); this.pendingSaves++; this.emit(); const j=await this.api("saveShift",{month:doc.month,status:doc.status,cells:doc.cells}); this.setMonthPart(doc.month,"shift",j.shift); this.pendingSaves=0; this.emit(); return j.shift; },
   /* --- ボトル売上・お給料 --- */
-  want(key,fn){ if(!this.ready||this.loading[key]) return; if(key.startsWith("b:")&&this.bottles[key.slice(2)]) return; if(key.startsWith("p:")&&this.pay[key.slice(2)]) return;
-    this.loading[key]=true; fn().catch(e=>toast(errMsg(e))).finally(()=>{ delete this.loading[key]; this.emit(); }); },
+  // 失敗したら「計算し直す」を押すまで読み直さない（失敗のたびに何度も送らないように）
+  want(key,fn){ if(!this.ready||this.loading[key]||this.failed[key]) return; if(key.startsWith("b:")&&this.bottles[key.slice(2)]) return; if(key.startsWith("p:")&&this.pay[key.slice(2)]) return;
+    this.loading[key]=true; fn().catch(e=>{ this.failed[key]=errMsg(e); toast(errMsg(e)); }).finally(()=>{ delete this.loading[key]; this.emit(); }); },
   async loadBottles(month,staffId){ const j=await this.api("getBottles",{month,staffId:staffId||""}); this.bottles[month+"|"+(staffId||"")]=j.bottles; },
   async loadPay(month){ const j=await this.api("getPay",{month}); this.pay[month]=j.pay; },
   async addBottle(b){ await this.api("addBottle",b); this.bottles={}; this.pay={}; this.emit(); },
@@ -558,7 +559,7 @@ function vPay(){
   const ym=state.month; Store.want("p:"+ym,()=>Store.loadPay(ym)); Store.want("b:"+ym+"|",()=>Store.loadBottles(ym,""));
   const p=Store.pay[ym], bl=Store.bottles[ym+"|"], nameOf=id=>(Store.staff.find(s=>s.id===id)||{}).name||"（削除済み）";
   return `<section class="card"><div class="row space">${vMonthNav("pm",ym)}<a href="#" data-act="payReload" style="color:var(--muted);font-size:13px">計算し直す</a></div>
-  ${!p?'<div class="note" style="margin-top:10px">計算中…</div>':`
+  ${!p?(Store.failed["p:"+ym]?`<div class="warnbox" style="margin-top:10px">計算できませんでした（${esc(Store.failed["p:"+ym])}）。右上の「計算し直す」を押してください。</div>`:'<div class="note" style="margin-top:10px">計算中…（数秒かかります）</div>'):`
     <div class="sum" style="margin:10px 0"><div><b>${yen(p.fixed)}</b><span>時給の分</span></div><div><b>${yen(p.variable)}</b><span>歩合の分</span></div><div><b>${yen(p.total)}</b><span>合計</span></div></div>
     ${p.noWage&&p.noWage.length?`<div class="warnbox" style="margin-bottom:10px"><b>時給が入っていない人がいます：</b>${p.noWage.map(esc).join("、")}<br>「スタッフ」の編集で時給を入れてください。</div>`:""}
     <div class="tbl"><table class="list"><thead><tr><th>スタッフ</th><th class="num">日数</th><th class="num">時間</th><th class="num">うち夜10時〜</th><th class="num">時給</th><th class="num">時給の分</th><th class="num">ボトル</th><th class="num">歩合</th><th class="num">合計</th></tr></thead><tbody>
@@ -730,7 +731,7 @@ app.addEventListener("click", async e=>{
     case "bKind": keepBForm(); state.bForm.kind=t.dataset.v; go(); break;
     case "bDel": { if(t.dataset.sure!=="1"){ t.dataset.sure="1"; t.textContent="本当に消す"; break; } await busy(async()=>{ await Store.updateBottle(t.dataset.id,{remove:true}); toast("消しました"); }); break; }
     case "bCheck": await busy(async()=>{ await Store.updateBottle(t.dataset.id,{checked:t.checked}); }); break;
-    case "payReload": delete Store.pay[state.month]; go(); break;
+    case "payReload": delete Store.pay[state.month]; delete Store.failed["p:"+state.month]; delete Store.bottles[state.month+"|"]; delete Store.failed["b:"+state.month+"|"]; go(); break;
     case "selDay": state.selDay = state.selDay===+t.dataset.d?null:+t.dataset.d; go(); break;
     case "openDay": state.sheetDay=+t.dataset.d; go(); break;
     case "closeSheet": state.sheetDay=null; go(); break;
