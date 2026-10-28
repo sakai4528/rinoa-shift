@@ -4,7 +4,7 @@
  * - データはこのスクリプトに紐づくスプレッドシートに保存します（シートは自動で作られます）
  * - フロント（web/index.html）から POST された JSON を受け取り、LINE のアクセストークンで本人確認してから処理します
  * - シフト公開・締切前・退勤忘れ・前日（出勤の前の日のお昼12時）の LINE 通知を Messaging API で送ります
- * - 時給・夜10時からの割増・ボトル歩合からお給料の見込みを出し、「payroll」シートに書きます（経営ボードが読む）
+ * - 時給（夜10時からの割増は設定で。既定はなし）・ボトル歩合からお給料の見込みを出し、「payroll」シートに書きます（経営ボードが読む）
  * - 営業日は朝6時で切り替え（夜中1時の退勤も前の日の勤務として記録）
  *
  * 初回セットアップ（README の手順どおり）
@@ -14,7 +14,7 @@
  *   4. デプロイ → 新しいデプロイ → ウェブアプリ（実行ユーザー: 自分 / アクセス: 全員）
  */
 
-const VERSION = "2026-10-27.7";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
+const VERSION = "2026-10-28.1";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
 const TZ = "Asia/Tokyo";
 const PROP = PropertiesService.getScriptProperties();
 
@@ -30,7 +30,7 @@ const DEFAULT_SETTINGS = {
   remind: true,          // 出勤の前の日のお昼12時に本人へ知らせる
   notifyPublish: false,  // シフトを公開したとき全員へ知らせる（2026-10 やっさん：不要）
   notifyDeadline: false, // 希望の締切3日前・当日に未提出の人と管理者へ知らせる（2026-10 やっさん：不要）
-  nightPremium: 0.25,    // 夜10時〜朝5時の割増
+  nightExtra: 0,         // 夜10時〜朝5時の割増（2026-10-28 やっさん：割増しなし＝0。古い nightPremium=0.25 の行は使わない）
   saleKinds: ["シャンパン", "ワイン"],
   saleTax: 0             // ボトルの値段は税込みで入れ、歩合も税込みに掛ける（0.1 にすると税抜き＝税込÷1.1 に掛ける）
 };
@@ -404,7 +404,7 @@ function cellMins_(val, S) {
 }
 function computePay_(month) {
   const S = getSettings_();
-  const prem = S.nightPremium === undefined ? 0.25 : +S.nightPremium;
+  const prem = +S.nightExtra || 0;
   const tax = +S.saleTax || 0;
   const staff = readAll_("staff");
   const tcs = readAll_("timecards").filter(r => r.month === month);
@@ -659,7 +659,7 @@ function sanitizeSettings_(s) {
   if (s.remind !== undefined) o.remind = !!s.remind;
   if (s.notifyPublish !== undefined) o.notifyPublish = !!s.notifyPublish;
   if (s.notifyDeadline !== undefined) o.notifyDeadline = !!s.notifyDeadline;
-  if (s.nightPremium !== undefined) o.nightPremium = Math.min(1, Math.max(0, +s.nightPremium || 0));
+  if (s.nightExtra !== undefined) o.nightExtra = Math.min(1, Math.max(0, +s.nightExtra || 0));
   return o;
 }
 

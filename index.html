@@ -215,7 +215,7 @@ const CONFIG = {
 /* ============================================================
    共通
    ============================================================ */
-const SERVER_VERSION="2026-10-27.7";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
+const SERVER_VERSION="2026-10-28.1";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
 const TC_MODES={nearest:"四捨五入（15分未満は切り捨て、15分以上は30分扱い）",floor:"すべて切り捨て",ceil:"すべて切り上げ",favor:"出勤は切り上げ・退勤は切り捨て"};
 const WD = ["日","月","火","水","木","金","土"];
 const pad = n => String(n).padStart(2,"0");
@@ -565,7 +565,7 @@ function vPay(){
     <div class="tbl"><table class="list"><thead><tr><th>スタッフ</th><th class="num">日数</th><th class="num">時間</th><th class="num">うち夜10時〜</th><th class="num">時給</th><th class="num">時給の分</th><th class="num">ボトル</th><th class="num">歩合</th><th class="num">合計</th></tr></thead><tbody>
     ${p.staff.map(r=>`<tr><td><b>${esc(r.name)}</b>${r.planHours?`<div class="note" style="margin:0">うち予定 ${fmtH(r.planHours)}h</div>`:""}</td><td class="num">${r.days}</td><td class="num">${fmtH(r.hours)}</td><td class="num">${fmtH(r.nightHours)}</td><td class="num">${r.wage?yen(r.wage):'<span style="color:var(--warn)">未</span>'}</td><td class="num">${yen(r.wagePay)}</td><td class="num">${r.salesTotal?yen(r.salesTotal)+(p.saleTax?`<div class="note" style="margin:0">税抜 ${yen(r.salesNet)}</div>`:""):"—"}</td><td class="num">${r.commission?yen(r.commission)+`<div class="note" style="margin:0">${pct(r.rate)}%</div>`:"—"}</td><td class="num"><b>${yen(r.total)}</b></td></tr>`).join("")||'<tr><td colspan="9" class="note">この月はまだ勤務もボトルもありません</td></tr>'}
     <tr><td><b>合計</b></td><td></td><td class="num"><b>${fmtH(p.hours)}</b></td><td></td><td></td><td class="num"><b>${yen(p.fixed)}</b></td><td class="num"><b>${yen(p.salesTotal)}</b></td><td class="num"><b>${yen(p.variable)}</b></td><td class="num"><b>${yen(p.total)}</b></td></tr></tbody></table></div>
-    <p class="note" style="margin-top:8px"><b>見込み</b>です。時間は打刻があれば打刻（${+Store.settings.tcUnit||30}分刻み・休憩を引く）、打刻がない日は公開済みシフトの予定を使います。夜10時〜朝5時は時給を${Math.round((p.nightPremium??.25)*100)}%増しで計算。歩合は下のボトル売上${p.saleTax?`（税込）を<b>税抜き（÷${1+(+p.saleTax)}）</b>にしてから`:"（税込）に"}、その人の割合を掛けています。この数字は毎朝と、この画面を開いたときに「payroll」シートへ書き込まれ、経営ボードの人件費（見込み）に入ります。</p>`}
+    <p class="note" style="margin-top:8px"><b>見込み</b>です。時間は打刻があれば打刻（${+Store.settings.tcUnit||30}分刻み・休憩を引く）、打刻がない日は公開済みシフトの予定を使います。${p.nightPremium?`夜10時〜朝5時は時給を${Math.round(p.nightPremium*100)}%増しで計算。`:"夜10時以降も同じ時給（割増しなし）で計算。"}歩合は下のボトル売上${p.saleTax?`（税込）を<b>税抜き（÷${1+(+p.saleTax)}）</b>にしてから`:"（税込）に"}、その人の割合を掛けています。この数字は毎朝と、この画面を開いたときに「payroll」シートへ書き込まれ、経営ボードの人件費（見込み）に入ります。</p>`}
   </section>
   <section class="card"><h2>ボトル売上<small>${bl?bl.length+"件":""}</small></h2>
     <p class="note">左のチェックは「確認しました」の印です。確認済みは本人から直せなくなります。代わりに入れるときは「希望一覧」の「代理入力」→「ボトル」から。</p>
@@ -696,6 +696,7 @@ function vSettings(){
     <label class="inline"><input type="checkbox" name="notifyWish" id="cNotifyWish" ${S.notifyWish!==false?"checked":""}>スタッフが希望を出したら管理者にLINEで知らせる</label>
     <label class="inline"><input type="checkbox" name="phonePunch" id="cPhonePunch" ${S.phonePunch===true?"checked":""}>スマホのLINEからも出勤・退勤を押せるようにする<span class="h">（オフなら店舗iPadだけ）</span></label>
     <label class="inline"><input type="checkbox" name="kioskPin" id="cKioskPin" ${S.kioskPin!==false?"checked":""}>店舗iPadでの打刻に本人の暗証番号を求める</label>
+    <label>夜10時からの時給の割増し（%）<input type="number" name="nightExtra" id="cNightExtra" min="0" max="100" step="1" inputmode="numeric" value="${Math.round((+S.nightExtra||0)*100)}"><span class="h">（0＝夜も同じ時給）</span></label>
     <label class="inline"><input type="checkbox" name="remind" id="cRemind" ${S.remind!==false?"checked":""}>出勤の前の日のお昼12時に、本人へ「明日は○時から」とLINEで知らせる</label>
     <label class="inline"><input type="checkbox" name="notifyPublish" id="cNotifyPublish" ${S.notifyPublish===true?"checked":""}>シフトを公開したとき、全員にLINEで知らせる</label>
     <label class="inline"><input type="checkbox" name="notifyDeadline" id="cNotifyDeadline" ${S.notifyDeadline===true?"checked":""}>希望の締切の3日前と当日に、まだ出していない人へLINEで知らせる</label>
@@ -810,7 +811,7 @@ app.addEventListener("submit", async e=>{
   }
   if(fid==="setf"){
     const required=WD.map((_,i)=>+fd.get("req"+i)||0), closed=WD.map((_,i)=>fd.get("closed"+i)?i:-1).filter(i=>i>=0);
-    const patch={name:(fd.get("name")||"").trim()||S.name,eyebrow:fd.get("eyebrow")||"",openStart:fd.get("openStart")||S.openStart,openEnd:fd.get("openEnd")||S.openEnd,deadlineDay:Math.min(28,Math.max(1,+fd.get("deadlineDay")||20)),required,closed,closedHol:!!fd.get("closedHol"),tcUnit:+fd.get("tcUnit")||30,tcMode:TC_MODES[fd.get("tcMode")]?fd.get("tcMode"):"nearest",notifyWish:!!fd.get("notifyWish"),phonePunch:!!fd.get("phonePunch"),kioskPin:!!fd.get("kioskPin"),remind:!!fd.get("remind"),notifyPublish:!!fd.get("notifyPublish"),notifyDeadline:!!fd.get("notifyDeadline")};
+    const patch={name:(fd.get("name")||"").trim()||S.name,eyebrow:fd.get("eyebrow")||"",openStart:fd.get("openStart")||S.openStart,openEnd:fd.get("openEnd")||S.openEnd,deadlineDay:Math.min(28,Math.max(1,+fd.get("deadlineDay")||20)),required,closed,closedHol:!!fd.get("closedHol"),tcUnit:+fd.get("tcUnit")||30,tcMode:TC_MODES[fd.get("tcMode")]?fd.get("tcMode"):"nearest",notifyWish:!!fd.get("notifyWish"),phonePunch:!!fd.get("phonePunch"),kioskPin:!!fd.get("kioskPin"),remind:!!fd.get("remind"),notifyPublish:!!fd.get("notifyPublish"),notifyDeadline:!!fd.get("notifyDeadline"),nightExtra:Math.min(100,Math.max(0,+fd.get("nightExtra")||0))/100};
     const pin=String(fd.get("pin")||"").trim(); if(pin) patch.pin=pin;
     await busy(async()=>{ await Store.saveSettings(patch); toast("設定を保存しました"); });
   }
