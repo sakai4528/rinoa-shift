@@ -14,7 +14,7 @@
  *   4. デプロイ → 新しいデプロイ → ウェブアプリ（実行ユーザー: 自分 / アクセス: 全員）
  */
 
-const VERSION = "2026-10-28.3";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
+const VERSION = "2026-10-28.4";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
 const TZ = "Asia/Tokyo";
 const PROP = PropertiesService.getScriptProperties();
 
@@ -505,7 +505,7 @@ function writeHoursMonth_(ss, month) {
   const pay = computePay_(month), payOf = id => pay.staff.find(r => r.staffId === id) || {};
   const ks = kstyleOf_(month);
   const staff = hoursStaff_(month, tcs).concat(Object.keys(ks).filter(l => !ks[l].staffId).map(l => ({ id: "", name: l + "（シフト表に未登録）", ksLabel: l })));
-  const W = n + 7;   // A列＋日付n列＋右の6列
+  const W = n + 8;   // A列＋日付n列＋右の7列
   const sh = hoursSheet_(ss, y + "年" + m + "月", 1);
   const vals = [], colors = [], notes = [];
   const blank = () => new Array(W).fill("");
@@ -513,9 +513,7 @@ function writeHoursMonth_(ss, month) {
   const r2 = blank(); r2[0] = "黒い数字＝打刻した時間（" + (+S.tcUnit || 30) + "分刻み・休憩を引く）／灰色＝打刻がない日のシフトの予定／「出勤中」＝まだ退勤していない／青い数字＝旧表 K-style（R8）から写した時間。数字のマスに印（右上の三角）があれば、出勤・退勤の時刻が見られます";
   const r3 = ["日付"], r4 = ["曜日"];
   for (let d = 1; d <= n; d++) { r3.push(m + "/" + d); r4.push(HOURS_WD[new Date(y, m - 1, d).getDay()]); }
-  r3.push("打刻・K-styleの時間", "予定も入れた時間", "出勤日数", "時給", "時給の分", "歩合"); r4.push("", "", "", "", "", "");
-  // 右端に「お給料の見込み」
-  r3[W - 1] = "お給料の見込み"; r4[W - 1] = "";
+  r3.push("打刻・K-styleの時間", "予定も入れた時間", "出勤日数", "時給", "時給の分", "歩合", "お給料の見込み"); r4.push("", "", "", "", "", "", "");
   [r1, r2, r3, r4].forEach(r => { vals.push(r); colors.push(new Array(W).fill("#000000")); notes.push(new Array(W).fill("")); });
   const dayTot = new Array(n + 1).fill(0);
   staff.forEach(s => {
@@ -544,6 +542,7 @@ function writeHoursMonth_(ss, month) {
   tot.push(Math.round(dayTot.reduce((a, b) => a + b, 0) * 100) / 100, Math.round(((pay.hours || 0) + extraH) * 100) / 100, "", "", pay.fixed || 0, pay.variable || 0, pay.total || 0);
   vals.push(tot); colors.push(new Array(W).fill("#000000")); notes.push(new Array(W).fill(""));
   const rows = vals.length;
+  [vals, colors, notes].forEach(a => a.forEach(r => { while (r.length < W) r.push(a === colors ? "#000000" : ""); r.length = W; }));   // 行の長さをそろえる（ずれると setValues が止まる）
   sh.getRange(1, 1, rows, W).setValues(vals).setFontColors(colors).setNotes(notes).setVerticalAlignment("middle");
   sh.getRange(1, 1).setFontSize(14).setFontWeight("bold");
   sh.getRange(2, 1).setFontColor("#666666").setFontSize(9);
@@ -562,7 +561,7 @@ function writeHoursMonth_(ss, month) {
   sh.getRange(3, n + 2, rows - 2, 1).setBackground("#eef6ee");
   sh.getRange(3, W, rows - 2, 1).setBackground("#eef6ee").setFontWeight("bold");
   sh.getRange(3, 1, rows - 2, W).setBorder(true, true, true, true, true, true, "#cccccc", SpreadsheetApp.BorderStyle.SOLID);
-  sh.setColumnWidth(1, 110); sh.setColumnWidths(2, n, 44); sh.setColumnWidths(n + 2, 6, 92);
+  sh.setColumnWidth(1, 150); sh.setColumnWidths(2, n, 44); sh.setColumnWidths(n + 2, 7, 92);
   sh.setRowHeight(2, 20); sh.setFrozenRows(4); sh.setFrozenColumns(1);
   return sh;
 }
