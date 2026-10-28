@@ -191,6 +191,7 @@ pre.txt{white-space:pre-wrap;font:12px/1.6 ui-monospace,Menlo,monospace;backgrou
 .tce input{border:1px solid var(--line);border-radius:8px;padding:6px 6px;background:var(--bg);min-height:38px;width:100%;min-width:0}
 .tce .x{border:1px solid var(--line);background:var(--panel);border-radius:8px;min-height:38px;width:38px;cursor:pointer;color:var(--muted)}
 .tce .dd{font-weight:700;text-align:center}
+.tce .tcx{display:flex;align-items:center;gap:4px;white-space:nowrap}.tce .tcx input[type=number]{width:56px}.tce .tcx input[type=checkbox]{width:20px;min-height:0}
 .warnbox{background:var(--warn-soft);color:var(--warn);border-radius:8px;padding:10px 12px;font-size:13px}
 .loading{text-align:center;padding:60px 20px;color:var(--muted)}
 .loading b{display:block;font-family:var(--f-disp);font-size:18px;color:var(--ink);margin-bottom:6px}
@@ -215,7 +216,7 @@ const CONFIG = {
 /* ============================================================
    共通
    ============================================================ */
-const SERVER_VERSION="2026-10-28.4";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
+const SERVER_VERSION="2026-10-29.1";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
 const TC_MODES={nearest:"四捨五入（15分未満は切り捨て、15分以上は30分扱い）",floor:"すべて切り捨て",ceil:"すべて切り上げ",favor:"出勤は切り上げ・退勤は切り捨て"};
 const WD = ["日","月","火","水","木","金","土"];
 const pad = n => String(n).padStart(2,"0");
@@ -274,6 +275,7 @@ function roundPunch(hm,kind){
   else r=Math.round(m/u)*u;
   return hmOf(r);
 }
+const extraTxt = r => [r&&+r.drinks?`ドリンク${r.drinks}杯`:"", r&&+r.douhan?"同伴":""].filter(Boolean).join("・");
 function calcRec(rec){
   if(!rec||!rec.in) return null;
   const inR=roundPunch(rec.in.slice(11,16),"in");
@@ -502,8 +504,8 @@ function vTimecard(m){
   const canPunch = S.phonePunch===true || Store.isAdmin;
   const schedTxt = sched?(sched.kind==="off"?"本日は休みの予定です":`本日の予定：<b>${dropZero(sched.start)}〜${dropZero(sched.end)}</b>${tagLabel(sched.tags)?`（${esc(tagLabel(sched.tags))}）`:""}`):"本日のシフト予定はありません";
   if(!rec) body=`<div class="st">${schedTxt}</div>${canPunch?`<button class="btn big" data-act="punchIn" ${state.busy?"disabled":""}>出　勤</button>`:`<div class="hint" style="font-size:14px">出勤・退勤は<b>店内のiPad</b>で、自分の名前をタップして押してください。</div>`}`;
-  else if(c.open) body=`<div class="st"><b>出勤中</b><br>${dropZero(rec.in.slice(11,16))} に出勤（${dropZero(c.inR)} として計算）</div>${canPunch?`<div class="brkrow">休憩 <input type="number" id="tcBrk" min="0" max="300" step="5" value="${esc(rec.brk||0)}" inputmode="numeric"> 分</div><button class="btn big out" data-act="punchOut" ${state.busy?"disabled":""}>退　勤</button>`:`<div class="hint" style="font-size:14px">帰るときは<b>店内のiPad</b>で「退勤」を押してください。</div>`}`;
-  else body=`<div class="st"><b>本日はお疲れさまでした</b><br>${dropZero(rec.in.slice(11,16))} 出勤 → ${dropZero(rec.out.slice(11,16))} 退勤${rec.brk?`（休憩 ${rec.brk}分）`:""}<br>計算：${dropZero(c.inR)}〜${dropZero(c.outR)}　実働 <b>${fmtH(c.mins/60)}</b> 時間</div><p class="note">時刻の修正が必要なときは経営者に伝えてください。</p>`;
+  else if(c.open) body=`<div class="st"><b>出勤中</b><br>${dropZero(rec.in.slice(11,16))} に出勤（${dropZero(c.inR)} として計算）</div>${canPunch?`<div class="brkrow">休憩 <input type="number" id="tcBrk" min="0" max="300" step="5" value="${esc(rec.brk||0)}" inputmode="numeric"> 分</div><div class="brkrow">今日のドリンク <input type="number" id="tcDr" min="0" max="99" step="1" value="0" inputmode="numeric"> 杯</div><label class="brkrow" style="cursor:pointer"><input type="checkbox" id="tcDh" ${sched&&sched.tags&&sched.tags.douhan?"checked":""} style="width:22px;height:22px;min-height:0"> 今日は同伴あり</label><button class="btn big out" data-act="punchOut" ${state.busy?"disabled":""}>退　勤</button>`:`<div class="hint" style="font-size:14px">帰るときは<b>店内のiPad</b>で「退勤」を押してください。</div>`}`;
+  else body=`<div class="st"><b>本日はお疲れさまでした</b><br>${dropZero(rec.in.slice(11,16))} 出勤 → ${dropZero(rec.out.slice(11,16))} 退勤${rec.brk?`（休憩 ${rec.brk}分）`:""}<br>計算：${dropZero(c.inR)}〜${dropZero(c.outR)}　実働 <b>${fmtH(c.mins/60)}</b> 時間${extraTxt(rec)?`<br>${esc(extraTxt(rec))}`:""}</div><p class="note">時刻や杯数の修正が必要なときは経営者に伝えてください。</p>`;
   return `<section class="card">
     <div class="punch"><div class="date">${bz.getMonth()+1}月${d}日（${WD[bz.getDay()]}${isHol(bz.getFullYear(),bz.getMonth()+1,d)?"・祝":""}）の営業${now.getDate()!==d?`<span class="note" style="display:block">夜中の0時〜朝6時は前の日の勤務として記録します</span>`:""}</div><div class="clock" id="clock">${pad(now.getHours())}:${pad(now.getMinutes())}</div>${body}
     <div class="sum" style="width:100%;max-width:340px;grid-template-columns:1fr 1fr;margin-top:4px"><div><b>${fmtH(mTot/60)}<small style="font-size:12px;font-weight:400">h</small></b><span>今月の累計労働時間</span></div><div><b>${mCnt}<small style="font-size:12px;font-weight:400">日</small></b><span>今月の出勤日数</span></div></div></div>
@@ -526,7 +528,7 @@ function vTcHistory(m){
     const flags=`${r.edited||ed.length?'<span class="badge edit">修正あり</span>':""}${r.req?'<span class="badge">修正依頼中</span>':""}`;
     const hist= ed.length?`<div class="raw" style="margin-top:3px">${ed.map(e=>`${esc(String(e.at).slice(5,16).replace("T"," "))} ${esc(e.by)}：${esc(e.what)}`).join("<br>")}</div>`:"";
     const reqUI= state.fixReqDay===d?`<form class="f" id="fixreq" data-d="${d}" style="grid-column:1/4;gap:6px;margin-top:4px"><textarea id="fixText" maxlength="200" placeholder="例：退勤を押し忘れました。実際は18:05に帰りました" style="min-height:56px"></textarea><div class="row"><button class="btn sm" ${state.busy?"disabled":""}>経営者に送る</button><button type="button" class="btn ghost sm" data-act="fixReq" data-d="${d}">やめる</button></div></form>`:"";
-    return `<div class="r ${c.open?"open":""} ${r.manual?"manual":""}" style="grid-template-columns:64px 1fr auto;row-gap:2px"><span class="dd ${w===6?"sat":""} ${w===0?"sun":""}">${d}日(${WD[w]})</span><span>${c.open?`${dropZero(c.inR)}〜 退勤未`:`${dropZero(c.inR)}〜${dropZero(c.outR)}${r.brk?` 休${r.brk}`:""}`} ${flags}<br><span class="raw">打刻 ${dropZero(r.in.slice(11,16))}${r.out?`〜${dropZero(r.out.slice(11,16))}`:""}</span>${hist}${r.req?`<div class="raw">依頼中：「${esc(r.req.text)}」</div>`:""}</span><span style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><span class="hh">${c.open?"—":fmtH(c.mins/60)+"h"}</span>${state.proxyId?"":`<button class="btn ghost sm" data-act="fixReq" data-d="${d}" style="min-height:26px;padding:2px 8px;font-size:11px">修正を依頼</button>`}</span>${reqUI}</div>`; }).join("");
+    return `<div class="r ${c.open?"open":""} ${r.manual?"manual":""}" style="grid-template-columns:64px 1fr auto;row-gap:2px"><span class="dd ${w===6?"sat":""} ${w===0?"sun":""}">${d}日(${WD[w]})</span><span>${c.open?`${dropZero(c.inR)}〜 退勤未`:`${dropZero(c.inR)}〜${dropZero(c.outR)}${r.brk?` 休${r.brk}`:""}`}${extraTxt(r)?` <span class="badge">${esc(extraTxt(r))}</span>`:""} ${flags}<br><span class="raw">打刻 ${dropZero(r.in.slice(11,16))}${r.out?`〜${dropZero(r.out.slice(11,16))}`:""}</span>${hist}${r.req?`<div class="raw">依頼中：「${esc(r.req.text)}」</div>`:""}</span><span style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><span class="hh">${c.open?"—":fmtH(c.mins/60)+"h"}</span>${state.proxyId?"":`<button class="btn ghost sm" data-act="fixReq" data-d="${d}" style="min-height:26px;padding:2px 8px;font-size:11px">修正を依頼</button>`}</span>${reqUI}</div>`; }).join("");
   return `<section class="card">
     ${vMonthNav("tcm",ym,"の勤務")}
     <div class="sum" style="margin:10px 0"><div><b>${cnt}</b><span>出勤日数</span></div><div><b>${fmtH(total/60)}</b><span>実働合計（h）</span></div><div><b>${+Store.settings.tcUnit||30}</b><span>分刻みで計算</span></div></div>
@@ -560,12 +562,12 @@ function vPay(){
   const p=Store.pay[ym], bl=Store.bottles[ym+"|"], nameOf=id=>(Store.staff.find(s=>s.id===id)||{}).name||"（削除済み）";
   return `<section class="card"><div class="row space">${vMonthNav("pm",ym)}<a href="#" data-act="payReload" style="color:var(--muted);font-size:13px">計算し直す</a></div>
   ${!p?(Store.failed["p:"+ym]?`<div class="warnbox" style="margin-top:10px">計算できませんでした（${esc(Store.failed["p:"+ym])}）。右上の「計算し直す」を押してください。</div>`:'<div class="note" style="margin-top:10px">計算中…（数秒かかります）</div>'):`
-    <div class="sum" style="margin:10px 0"><div><b>${yen(p.fixed)}</b><span>時給の分</span></div><div><b>${yen(p.variable)}</b><span>歩合の分</span></div><div><b>${yen(p.total)}</b><span>合計</span></div></div>
+    <div class="sum" style="margin:10px 0"><div><b>${yen(p.fixed)}</b><span>時給の分</span></div><div><b>${yen(p.variable)}</b><span>歩合・ドリンクの分</span></div><div><b>${yen(p.total)}</b><span>合計</span></div></div>
     ${p.noWage&&p.noWage.length?`<div class="warnbox" style="margin-bottom:10px"><b>時給が入っていない人がいます：</b>${p.noWage.map(esc).join("、")}<br>「スタッフ」の編集で時給を入れてください。</div>`:""}
-    <div class="tbl"><table class="list"><thead><tr><th>スタッフ</th><th class="num">日数</th><th class="num">時間</th><th class="num">うち夜10時〜</th><th class="num">時給</th><th class="num">時給の分</th><th class="num">ボトル</th><th class="num">歩合</th><th class="num">合計</th></tr></thead><tbody>
-    ${p.staff.map(r=>`<tr><td><b>${esc(r.name)}</b>${r.planHours?`<div class="note" style="margin:0">うち予定 ${fmtH(r.planHours)}h</div>`:""}</td><td class="num">${r.days}</td><td class="num">${fmtH(r.hours)}</td><td class="num">${fmtH(r.nightHours)}</td><td class="num">${r.wage?yen(r.wage):'<span style="color:var(--warn)">未</span>'}</td><td class="num">${yen(r.wagePay)}</td><td class="num">${r.salesTotal?yen(r.salesTotal)+(p.saleTax?`<div class="note" style="margin:0">税抜 ${yen(r.salesNet)}</div>`:""):"—"}</td><td class="num">${r.commission?yen(r.commission)+`<div class="note" style="margin:0">${pct(r.rate)}%</div>`:"—"}</td><td class="num"><b>${yen(r.total)}</b></td></tr>`).join("")||'<tr><td colspan="9" class="note">この月はまだ勤務もボトルもありません</td></tr>'}
-    <tr><td><b>合計</b></td><td></td><td class="num"><b>${fmtH(p.hours)}</b></td><td></td><td></td><td class="num"><b>${yen(p.fixed)}</b></td><td class="num"><b>${yen(p.salesTotal)}</b></td><td class="num"><b>${yen(p.variable)}</b></td><td class="num"><b>${yen(p.total)}</b></td></tr></tbody></table></div>
-    <p class="note" style="margin-top:8px"><b>見込み</b>です。時間は打刻があれば打刻（${+Store.settings.tcUnit||30}分刻み・休憩を引く）、打刻がない日は公開済みシフトの予定を使います。${p.nightPremium?`夜10時〜朝5時は時給を${Math.round(p.nightPremium*100)}%増しで計算。`:"夜10時以降も同じ時給（割増しなし）で計算。"}歩合は下のボトル売上${p.saleTax?`（税込）を<b>税抜き（÷${1+(+p.saleTax)}）</b>にしてから`:"（税込）に"}、その人の割合を掛けています。この数字は毎朝と、この画面を開いたときに「payroll」シートへ書き込まれ、経営ボードの人件費（見込み）に入ります。</p>`}
+    <div class="tbl"><table class="list"><thead><tr><th>スタッフ</th><th class="num">日数</th><th class="num">時間</th><th class="num">うち夜10時〜</th><th class="num">時給</th><th class="num">時給の分</th><th class="num">ドリンク</th><th class="num">ボトル</th><th class="num">歩合</th><th class="num">合計</th></tr></thead><tbody>
+    ${p.staff.map(r=>`<tr><td><b>${esc(r.name)}</b>${r.planHours?`<div class="note" style="margin:0">うち予定 ${fmtH(r.planHours)}h</div>`:""}</td><td class="num">${r.days}</td><td class="num">${fmtH(r.hours)}</td><td class="num">${fmtH(r.nightHours)}</td><td class="num">${r.wage?yen(r.wage):'<span style="color:var(--warn)">未</span>'}</td><td class="num">${yen(r.wagePay)}${r.douhan?`<div class="note" style="margin:0">同伴${r.douhan}回こみ</div>`:""}</td><td class="num">${r.drinks?yen(r.drinkPay)+`<div class="note" style="margin:0">${r.drinks}杯</div>`:"—"}</td><td class="num">${r.salesTotal?yen(r.salesTotal)+(p.saleTax?`<div class="note" style="margin:0">税抜 ${yen(r.salesNet)}</div>`:""):"—"}</td><td class="num">${r.commission?yen(r.commission)+`<div class="note" style="margin:0">${pct(r.rate)}%</div>`:"—"}</td><td class="num"><b>${yen(r.total)}</b></td></tr>`).join("")||'<tr><td colspan="10" class="note">この月はまだ勤務もボトルもありません</td></tr>'}
+    <tr><td><b>合計</b></td><td></td><td class="num"><b>${fmtH(p.hours)}</b></td><td></td><td></td><td class="num"><b>${yen(p.fixed)}</b></td><td class="num"><b>${yen(p.drinkPay||0)}</b></td><td class="num"><b>${yen(p.salesTotal)}</b></td><td class="num"><b>${yen(p.variable-(p.drinkPay||0))}</b></td><td class="num"><b>${yen(p.total)}</b></td></tr></tbody></table></div>
+    <p class="note" style="margin-top:8px"><b>見込み</b>です。時間は打刻があれば打刻（${+Store.settings.tcUnit||30}分刻み・休憩を引く）、打刻がない日は公開済みシフトの予定を使います。${p.nightPremium?`夜10時〜朝5時は時給を${Math.round(p.nightPremium*100)}%増しで計算。`:"夜10時以降も同じ時給（割増しなし）で計算。"}同伴は1回につき時給${p.douhanHours??1}時間分を「時給の分」に足し、ドリンクは1杯${p.drinkBack??100}円で計算（K-style（R8）から写した日は、同伴の時間がもう入っています）。歩合は下のボトル売上${p.saleTax?`（税込）を<b>税抜き（÷${1+(+p.saleTax)}）</b>にしてから`:"（税込）に"}、その人の割合を掛けています。この数字は毎朝と、この画面を開いたときに「payroll」シートへ書き込まれ、経営ボードの人件費（見込み）に入ります。</p>`}
   </section>
   <section class="card"><h2>ボトル売上<small>${bl?bl.length+"件":""}</small></h2>
     <p class="note">左のチェックは「確認しました」の印です。確認済みは本人から直せなくなります。代わりに入れるときは「希望一覧」の「代理入力」→「ボトル」から。</p>
@@ -647,10 +649,10 @@ function vTcAdmin(){
 function vTcDetail(s,ym){
   const {y,m}=parseYM(ym), doc=Store.tcOf(ym)[s.id]||{month:ym,staffId:s.id,days:{}}, days=Object.keys(doc.days||{}).map(Number).sort((a,b)=>a-b);
   const rows=days.map(d=>{ const r=doc.days[d], c=calcRec(r)||{}; const w=dow(y,m,d);
-    return `<div class="tce"><span class="dd" style="color:${w===0?"var(--sun)":w===6?"var(--sat)":"inherit"}">${d}日</span><input type="time" id="ti${d}" value="${esc(r.in?r.in.slice(11,16):"")}" aria-label="出勤"><input type="time" id="to${d}" value="${esc(r.out?r.out.slice(11,16):"")}" aria-label="退勤"><input type="number" id="tb${d}" value="${esc(r.brk||0)}" min="0" step="5" aria-label="休憩分"><button class="x" data-act="tcDel" data-d="${d}" aria-label="削除">×</button><span></span><span class="note" style="grid-column:2/5">計算 ${c.inR?dropZero(c.inR):"—"}〜${c.outR?dropZero(c.outR):"—"}　実働 ${c.open||!c.inR?"—":fmtH(c.mins/60)+"h"}${r.manual?"　<span style='color:var(--warn)'>手入力</span>":""}${r.edited?"　<span class='badge edit'>修正あり</span>":""}${r.req?`<br><b style="color:var(--warn)">修正依頼（${esc(String(r.req.at||"").slice(5).replace("T"," "))}）：</b>「${esc(r.req.text)}」`:""}</span></div>`; }).join("");
+    return `<div class="tce"><span class="dd" style="color:${w===0?"var(--sun)":w===6?"var(--sat)":"inherit"}">${d}日</span><input type="time" id="ti${d}" value="${esc(r.in?r.in.slice(11,16):"")}" aria-label="出勤"><input type="time" id="to${d}" value="${esc(r.out?r.out.slice(11,16):"")}" aria-label="退勤"><input type="number" id="tb${d}" value="${esc(r.brk||0)}" min="0" step="5" aria-label="休憩分"><button class="x" data-act="tcDel" data-d="${d}" aria-label="削除">×</button><span></span><span class="tcx" style="grid-column:2/4">ドリンク <input type="number" id="td${d}" value="${esc(r.drinks||0)}" min="0" max="99" step="1" inputmode="numeric" aria-label="ドリンク杯数"> 杯</span><label class="tcx" style="grid-column:4/6"><input type="checkbox" id="th${d}" ${+r.douhan?"checked":""}> 同伴</label><span></span><span class="note" style="grid-column:2/5">計算 ${c.inR?dropZero(c.inR):"—"}〜${c.outR?dropZero(c.outR):"—"}　実働 ${c.open||!c.inR?"—":fmtH(c.mins/60)+"h"}${r.manual?"　<span style='color:var(--warn)'>手入力</span>":""}${r.edited?"　<span class='badge edit'>修正あり</span>":""}${r.req?`<br><b style="color:var(--warn)">修正依頼（${esc(String(r.req.at||"").slice(5).replace("T"," "))}）：</b>「${esc(r.req.text)}」`:""}</span></div>`; }).join("");
   const edits=(doc.edits||[]).slice().reverse();
   return `<section class="card" id="tcdetail"><h2>${esc(s.name)}<small>${monthLabel(ym)}の明細</small></h2>
-    <p class="note">時刻を直して「保存」。退勤が出勤より早い時刻なら翌日扱いです。</p>
+    <p class="note">時刻・ドリンクの杯数・同伴を直して「保存」。退勤が出勤より早い時刻なら翌日扱いです。ドリンクと同伴は退勤のときに本人が入れます。</p>
     <div class="tce" style="color:var(--muted);font-size:11px"><span></span><span>出勤</span><span>退勤</span><span>休憩(分)</span><span></span></div>
     <div class="f" style="gap:8px;margin-top:6px">${rows||'<div class="note">打刻がありません。下の欄から追加できます。</div>'}</div>
     <div class="tce" style="margin-top:12px;border-top:1px solid var(--line2);padding-top:10px"><input type="number" id="tcNewDay" min="1" max="${daysIn(y,m)}" placeholder="日" aria-label="日"><input type="time" id="tcNewIn" aria-label="出勤"><input type="time" id="tcNewOut" aria-label="退勤"><input type="number" id="tcNewBrk" value="0" min="0" step="5" aria-label="休憩分"><button class="btn ghost sm" data-act="tcAdd" style="min-height:38px;padding:0 10px">追加</button></div>
@@ -698,6 +700,8 @@ function vSettings(){
     <label class="inline"><input type="checkbox" name="phonePunch" id="cPhonePunch" ${S.phonePunch===true?"checked":""}>スマホのLINEからも出勤・退勤を押せるようにする<span class="h">（オフなら店舗iPadだけ）</span></label>
     <label class="inline"><input type="checkbox" name="kioskPin" id="cKioskPin" ${S.kioskPin!==false?"checked":""}>店舗iPadでの打刻に本人の暗証番号を求める</label>
     <label>夜10時からの時給の割増し（%）<input type="number" name="nightExtra" id="cNightExtra" min="0" max="100" step="1" inputmode="numeric" value="${Math.round((+S.nightExtra||0)*100)}"><span class="h">（0＝夜も同じ時給）</span></label>
+    <label>ドリンク1杯のバック（円）<input type="number" name="drinkBack" min="0" max="10000" step="10" inputmode="numeric" value="${S.drinkBack??100}"></label>
+    <label>同伴1回で足す時間（時給の何時間分）<input type="number" name="douhanHours" min="0" max="5" step="0.5" inputmode="decimal" value="${S.douhanHours??1}"></label>
     <label class="inline"><input type="checkbox" name="remind" id="cRemind" ${S.remind!==false?"checked":""}>出勤の前の日のお昼12時に、本人へ「明日は○時から」とLINEで知らせる</label>
     <label class="inline"><input type="checkbox" name="notifyPublish" id="cNotifyPublish" ${S.notifyPublish===true?"checked":""}>シフトを公開したとき、全員にLINEで知らせる</label>
     <label class="inline"><input type="checkbox" name="notifyDeadline" id="cNotifyDeadline" ${S.notifyDeadline===true?"checked":""}>希望の締切の3日前と当日に、まだ出していない人へLINEで知らせる</label>
@@ -772,14 +776,14 @@ app.addEventListener("click", async e=>{
     case "cancelEdit": state.editStaff=null; go(); break;
     case "delStaff": { if(t.dataset.sure!=="1"){ t.dataset.sure="1"; t.textContent="本当に削除（もう一度タップ）"; break; } await busy(async()=>{ await Store.deleteStaff(t.dataset.id); state.editStaff=null; toast("削除しました"); }); break; }
     case "punchIn": await busy(async()=>{ await Store.punch({type:"in"}); toast("出勤を記録しました"); }); break;
-    case "punchOut": await busy(async()=>{ await Store.punch({type:"out",brk:Math.max(0,+($("#tcBrk")?.value||0))}); toast("退勤を記録しました。お疲れさまでした"); }); break;
+    case "punchOut": await busy(async()=>{ await Store.punch({type:"out",brk:Math.max(0,+($("#tcBrk")?.value||0)),drinks:Math.max(0,Math.min(99,Math.floor(+($("#tcDr")?.value||0)))),douhan:!!$("#tcDh")?.checked}); toast("退勤を記録しました。お疲れさまでした"); }); break;
     case "fixOpen": await busy(async()=>{ const hm=$("#openOut")?.value; if(!hm) throw new Error("退勤時刻を入れてください"); await Store.punch({type:"fixOut",month:t.dataset.ym,day:+t.dataset.d,hm}); toast("退勤を登録しました（手入力）"); }); break;
     case "tcStaff": state.tcStaff = state.tcStaff===t.dataset.id?null:t.dataset.id; state.lineText=null; go(); if(state.tcStaff) $("#tcdetail")?.scrollIntoView({behavior:"smooth",block:"start"}); break;
     case "tcSave": case "tcAdd": case "tcDel": await busy(async()=>{
       const sid=state.tcStaff, ym=state.month; if(!sid) return;
       const doc={month:ym,staffId:sid,days:{...((Store.tcOf(ym)[sid]||{}).days||{})}};
       Object.keys(doc.days).forEach(d=>{ const i=$(`#ti${d}`)?.value, o=$(`#to${d}`)?.value, b=$(`#tb${d}`)?.value; if(i===undefined) return; const r={...doc.days[d]}; const date=`${ym}-${pad(+d)}`;
-        if(i) r.in=date+"T"+i; if(o) r.out=(r.out?r.out.slice(0,10):date)+"T"+o; else delete r.out; r.brk=Math.max(0,+b||0); doc.days[d]=r; });
+        if(i) r.in=date+"T"+i; if(o) r.out=(r.out?r.out.slice(0,10):date)+"T"+o; else delete r.out; r.brk=Math.max(0,+b||0); r.drinks=Math.max(0,Math.min(99,Math.floor(+($(`#td${d}`)?.value||0)))); r.douhan=$(`#th${d}`)?.checked?1:0; doc.days[d]=r; });
       if(act==="tcDel") delete doc.days[t.dataset.d];
       if(act==="tcAdd"){ const d=+$("#tcNewDay").value, i=$("#tcNewIn").value, o=$("#tcNewOut").value, b=+$("#tcNewBrk").value||0; if(!d||!i) throw new Error("日と出勤時刻を入れてください"); const date=`${ym}-${pad(d)}`; doc.days[d]={in:date+"T"+i,...(o?{out:date+"T"+o}:{}),brk:b,manual:true}; }
       await Store.saveTC(doc); toast(act==="tcDel"?"削除しました":act==="tcAdd"?"追加しました":"保存しました"); }); break;
@@ -813,7 +817,7 @@ app.addEventListener("submit", async e=>{
   }
   if(fid==="setf"){
     const required=WD.map((_,i)=>+fd.get("req"+i)||0), closed=WD.map((_,i)=>fd.get("closed"+i)?i:-1).filter(i=>i>=0);
-    const patch={name:(fd.get("name")||"").trim()||S.name,eyebrow:fd.get("eyebrow")||"",openStart:fd.get("openStart")||S.openStart,openEnd:fd.get("openEnd")||S.openEnd,deadlineDay:Math.min(28,Math.max(1,+fd.get("deadlineDay")||20)),required,closed,closedHol:!!fd.get("closedHol"),tcUnit:+fd.get("tcUnit")||30,tcMode:TC_MODES[fd.get("tcMode")]?fd.get("tcMode"):"nearest",notifyWish:!!fd.get("notifyWish"),phonePunch:!!fd.get("phonePunch"),kioskPin:!!fd.get("kioskPin"),remind:!!fd.get("remind"),notifyPublish:!!fd.get("notifyPublish"),notifyDeadline:!!fd.get("notifyDeadline"),nightExtra:Math.min(100,Math.max(0,+fd.get("nightExtra")||0))/100};
+    const patch={name:(fd.get("name")||"").trim()||S.name,eyebrow:fd.get("eyebrow")||"",openStart:fd.get("openStart")||S.openStart,openEnd:fd.get("openEnd")||S.openEnd,deadlineDay:Math.min(28,Math.max(1,+fd.get("deadlineDay")||20)),required,closed,closedHol:!!fd.get("closedHol"),tcUnit:+fd.get("tcUnit")||30,tcMode:TC_MODES[fd.get("tcMode")]?fd.get("tcMode"):"nearest",notifyWish:!!fd.get("notifyWish"),phonePunch:!!fd.get("phonePunch"),kioskPin:!!fd.get("kioskPin"),remind:!!fd.get("remind"),notifyPublish:!!fd.get("notifyPublish"),notifyDeadline:!!fd.get("notifyDeadline"),nightExtra:Math.min(100,Math.max(0,+fd.get("nightExtra")||0))/100,drinkBack:Math.max(0,Math.round(+fd.get("drinkBack")||0)),douhanHours:Math.max(0,+fd.get("douhanHours")||0)};
     const pin=String(fd.get("pin")||"").trim(); if(pin) patch.pin=pin;
     await busy(async()=>{ await Store.saveSettings(patch); toast("設定を保存しました"); });
   }
@@ -831,7 +835,7 @@ function buildLineText(){
 function buildTcText(){
   const ym=state.month, {y,m}=parseYM(ym), tcs=Store.tcOf(ym), S=Store.settings, lines=[`【${S.name} ${y}年${m}月 勤務時間】${+S.tcUnit||30}分刻み／${TC_MODES[S.tcMode||"nearest"]}`];
   activeStaff().forEach(s=>{ const doc=tcs[s.id]; if(!doc) return; let tot=0; const ds=Object.keys(doc.days||{}).map(Number).sort((a,b)=>a-b); lines.push(`■ ${s.name}`);
-    ds.forEach(d=>{ const r=doc.days[d], c=calcRec(r); if(!c) return; if(c.open){ lines.push(`${m}/${d}(${WD[dow(y,m,d)]}) ${dropZero(c.inR)}〜 退勤未`); return; } tot+=c.mins; lines.push(`${m}/${d}(${WD[dow(y,m,d)]}) ${dropZero(c.inR)}〜${dropZero(c.outR)}${r.brk?` 休憩${r.brk}分`:""} ${fmtH(c.mins/60)}h${r.manual?" ※手入力":""}${r.edited?" ※修正あり":""}`); });
+    ds.forEach(d=>{ const r=doc.days[d], c=calcRec(r); if(!c) return; if(c.open){ lines.push(`${m}/${d}(${WD[dow(y,m,d)]}) ${dropZero(c.inR)}〜 退勤未`); return; } tot+=c.mins; lines.push(`${m}/${d}(${WD[dow(y,m,d)]}) ${dropZero(c.inR)}〜${dropZero(c.outR)}${r.brk?` 休憩${r.brk}分`:""} ${fmtH(c.mins/60)}h${extraTxt(r)?" "+extraTxt(r):""}${r.manual?" ※手入力":""}${r.edited?" ※修正あり":""}`); });
     lines.push(`合計 ${fmtH(tot/60)}h`); });
   return lines.join("\n");
 }

@@ -62,7 +62,7 @@ h1,h2{margin:0;font-family:var(--f-disp);font-weight:700}
 .err{color:var(--ng);font-size:15px;min-height:1.4em}
 /* モーダル */
 .ov{position:fixed;inset:0;background:rgba(10,20,18,.5);display:flex;align-items:center;justify-content:center;z-index:30;padding:16px}
-.md{background:var(--panel);border-radius:22px;box-shadow:var(--shadow);width:100%;max-width:560px;padding:24px;display:flex;flex-direction:column;gap:14px}
+.md{background:var(--panel);border-radius:22px;box-shadow:var(--shadow);width:100%;max-width:560px;max-height:96vh;overflow:auto;padding:24px;display:flex;flex-direction:column;gap:14px}
 .md .who{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
 .md .who b{font-family:var(--f-disp);font-size:30px}
 .md .who span{font-size:14px;color:var(--muted)}
@@ -76,6 +76,13 @@ h1,h2{margin:0;font-family:var(--f-disp);font-weight:700}
 .brk{display:flex;align-items:center;justify-content:center;gap:10px;font-size:16px}
 .brk input{width:90px;border:1px solid var(--line);border-radius:10px;padding:8px;background:var(--bg);text-align:center;font-size:20px;min-height:48px}
 .md .row{display:flex;gap:10px}
+.ext{display:flex;flex-direction:column;gap:10px;background:var(--bg);border-radius:14px;padding:12px 14px}
+.ext .lb{font-size:15px;font-weight:700}
+.cnt{display:flex;align-items:center;justify-content:center;gap:14px}
+.cnt button{width:64px;height:64px;border-radius:50%;border:1px solid var(--line);background:var(--panel);font-size:34px;font-weight:700;cursor:pointer;color:var(--ink)}
+.cnt b{font-family:var(--f-disp);font-size:44px;min-width:80px;text-align:center;font-variant-numeric:tabular-nums}
+.dh{display:flex;align-items:center;justify-content:center;gap:10px;min-height:52px;border:1px solid var(--line);border-radius:12px;background:var(--panel);font-size:18px;font-weight:700;cursor:pointer;color:var(--ink)}
+.dh.on{background:#EFDDF0;color:#7E3F7A;border-color:#7E3F7A}
 .toast{position:fixed;left:50%;top:18%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:22px 34px;border-radius:20px;font-size:26px;font-family:var(--f-disp);font-weight:700;box-shadow:var(--shadow);opacity:0;pointer-events:none;transition:opacity .2s;z-index:50;text-align:center;max-width:90vw}
 .toast.on{opacity:1}
 .toast.ok{background:var(--ok)}.toast.ng{background:var(--ng)}
@@ -151,7 +158,7 @@ function render(){
   if(S.modal) bindModal();
 }
 let idleT;
-function openModal(id){ S.modal={id}; S.pin=""; render(); clearTimeout(idleT); idleT=setTimeout(()=>{ S.modal=null; render(); },45000); }
+function openModal(id){ const x=(S.data.today.status[id]||{}); S.modal={id,drinks:0,douhan:/\|[^|]*d/.test(String(x.sched||""))}; S.pin=""; render(); clearTimeout(idleT); idleT=setTimeout(()=>{ S.modal=null; render(); },45000); }
 function renderModal(){
   const D=S.data, s=D.staff.find(x=>x.id===S.modal.id); if(!s) return "";
   const x=D.today.status[s.id]||{}; const needPin=D.settings.kioskPin; const mode= x.out?"done": x.in?"out":"in";
@@ -161,7 +168,9 @@ function renderModal(){
   const undo = (mode==="out"&&minsAgo(x.in)<=15)?`<button class="btn ghost" id="undo" data-type="undoIn" style="width:100%">出勤を取り消す（押し間違い・${minsAgo(x.in)}分前）</button>`
              : (mode==="done"&&minsAgo(x.out)<=15)?`<button class="btn ghost" id="undo" data-type="undoOut" style="width:100%">退勤を取り消す（押し間違い・${minsAgo(x.out)}分前）</button>`:"";
   const action = mode==="done"?`<div class="note" style="text-align:center">本日は退勤済みです（${dropZero(x.in)}〜${dropZero(x.out)}）。${undo?"押し間違いなら暗証番号を入れて取り消せます。":"修正は経営者に伝えてください。"}</div>${undo}`
-    : mode==="out"?`<div class="brk">休憩 <input type="number" id="brk" value="0" min="0" max="300" step="5" inputmode="numeric"> 分</div><button class="btn big out" id="go" ${S.busy?"disabled":""}>退　勤</button>${undo}`
+    : mode==="out"?`<div class="ext"><div class="lb">今日のドリンク（いただいた杯数）</div><div class="cnt"><button type="button" id="drM" aria-label="1杯へらす">−</button><b id="drN">${S.modal.drinks}</b><button type="button" id="drP" aria-label="1杯ふやす">＋</button></div>
+      <button type="button" class="dh ${S.modal.douhan?"on":""}" id="dhT">${S.modal.douhan?"✓ 今日は同伴あり":"同伴なし（あればタップ）"}</button></div>
+      <div class="brk">休憩 <input type="number" id="brk" value="0" min="0" max="300" step="5" inputmode="numeric"> 分</div><button class="btn big out" id="go" ${S.busy?"disabled":""}>退　勤</button>${undo}`
     : `<button class="btn big" id="go" ${S.busy?"disabled":""}>出　勤</button>`;
   return `<div class="ov" id="ov"><div class="md">
     <div class="who"><b>${esc(s.name)} さん</b><span>${x.in?`出勤 ${dropZero(x.in)}`:"未出勤"}${x.sched?"　"+esc(schedText(x.sched)):""}</span></div>
@@ -179,16 +188,20 @@ function bindModal(){
     const D=S.data, s=D.staff.find(x=>x.id===S.modal.id);
     if(D.settings.kioskPin && S.pin.length<4){ toast("暗証番号を入力してください","ng"); return; }
     S.busy=true; btn.disabled=true;
-    try{ const r=await api("kioskPunch",{staffId:s.id,type,pin:S.pin,brk:+($("#brk")?.value||0)}); S.data.today=r.today;
+    const ex=type==="out"?{drinks:S.modal.drinks,douhan:S.modal.douhan}:{};
+    try{ const r=await api("kioskPunch",{staffId:s.id,type,pin:S.pin,brk:+($("#brk")?.value||0),...ex}); S.data.today=r.today;
       const day=String(new Date(Date.now()-6*3600e3).getDate()), rec=(r.timecard&&r.timecard.days||{})[day]; const st=S.data.today.status[s.id]||{};
       if(rec) S.data.today.status[s.id]={...st,in:rec.in?rec.in.slice(11,16):"",out:rec.out?rec.out.slice(11,16):"",brk:+rec.brk||0};
       else if(type==="undoIn") S.data.today.status[s.id]={...st,in:"",out:"",brk:0};
       setTimeout(load,3000); S.modal=null; S.pin="";
-      toast(type==="undoIn"?`${s.name} さん　出勤を取り消しました`:type==="undoOut"?`${s.name} さん　退勤を取り消しました`:`${s.name} さん　${type==="in"?"出勤":"退勤"}しました`,"ok",type.startsWith("undo")?"修正として記録しました":`${dropZero(r.serverTime.slice(11))}　${type==="in"?"いってらっしゃい":"お疲れさまでした"}`); }
+      toast(type==="undoIn"?`${s.name} さん　出勤を取り消しました`:type==="undoOut"?`${s.name} さん　退勤を取り消しました`:`${s.name} さん　${type==="in"?"出勤":"退勤"}しました`,"ok",type.startsWith("undo")?"修正として記録しました":`${dropZero(r.serverTime.slice(11))}　${type==="in"?"いってらっしゃい":"お疲れさまでした"}${type==="out"?`（ドリンク${ex.drinks}杯${ex.douhan?"・同伴":""}）`:""}`); }
     catch(e){ toast(errMsg(e),"ng"); S.pin=""; }
     S.busy=false; render();
   };
   const un=$("#undo"); if(un) un.onclick=()=>doPunch(un.dataset.type,un);
+  const bump=n=>{ S.modal.drinks=Math.max(0,Math.min(99,S.modal.drinks+n)); $("#drN").textContent=S.modal.drinks; clearTimeout(idleT); idleT=setTimeout(()=>{S.modal=null;render();},45000); };
+  if($("#drM")){ $("#drM").onclick=()=>bump(-1); $("#drP").onclick=()=>bump(1);
+    $("#dhT").onclick=()=>{ S.modal.douhan=!S.modal.douhan; const b=$("#dhT"); b.classList.toggle("on",S.modal.douhan); b.textContent=S.modal.douhan?"✓ 今日は同伴あり":"同伴なし（あればタップ）"; }; }
   const go=$("#go"); if(go) go.onclick=async()=>{
     const D=S.data, s=D.staff.find(x=>x.id===S.modal.id), x=D.today.status[s.id]||{}, type=x.in?"out":"in";
     await doPunch(type,go);

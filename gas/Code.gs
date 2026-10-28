@@ -14,7 +14,7 @@
  *   4. デプロイ → 新しいデプロイ → ウェブアプリ（実行ユーザー: 自分 / アクセス: 全員）
  */
 
-const VERSION = "2026-10-28.4";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
+const VERSION = "2026-10-29.1";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
 const TZ = "Asia/Tokyo";
 const PROP = PropertiesService.getScriptProperties();
 
@@ -31,6 +31,8 @@ const DEFAULT_SETTINGS = {
   notifyPublish: false,  // シフトを公開したとき全員へ知らせる（2026-10 やっさん：不要）
   notifyDeadline: false, // 希望の締切3日前・当日に未提出の人と管理者へ知らせる（2026-10 やっさん：不要）
   nightExtra: 0,         // 夜10時〜朝5時の割増（2026-10-28 やっさん：割増しなし＝0。古い nightPremium=0.25 の行は使わない）
+  drinkBack: 100,        // ドリンク1杯ごとのバック（円）。杯数は退勤のときに本人が入れる（2026-10-28 やっさん）
+  douhanHours: 1,        // 同伴1回で足す時間（時給の何時間分か）
   saleKinds: ["シャンパン", "ワイン"],
   saleTax: 0             // ボトルの値段は税込みで入れ、歩合も税込みに掛ける（0.1 にすると税抜き＝税込÷1.1 に掛ける）
 };
@@ -273,6 +275,8 @@ function handle_(action, data, auth) {
         const a = (prev.days || {})[d], b = (data.days || {})[d];
         if (!b) { if (a) addEdit_(next, d, by, "記録を削除（" + recText_(a) + "）"); return; }
         const rec = Object.assign({}, a || {}, { in: b.in, brk: +b.brk || 0 }); if (b.out) rec.out = b.out; else delete rec.out;
+        setExtras_(rec, b);
+        if (a && extraText_(a) !== extraText_(rec)) addEdit_(next, d, by, (extraText_(a) || "ドリンク0杯") + " → " + (extraText_(rec) || "ドリンク0杯"));
         if (!a) { rec.manual = true; addEdit_(next, d, by, "記録を追加（" + recText_(rec) + "）"); }
         else if (recText_(a) !== recText_(rec)) addEdit_(next, d, by, recText_(a) + " → " + recText_(rec));
         if (rec.req && (!a || recText_(a) !== recText_(rec))) delete rec.req;   // 依頼に対応したら依頼を消す
@@ -369,7 +373,8 @@ function handle_(action, data, auth) {
 /* ============================================================
    お給料の見込み
    時間：打刻（丸め後・休憩を引く）があればそれ、なければ公開済みシフトの予定
-   金額：時給×時間 ＋ 時給×割増×夜10時〜朝5時の時間 ＋ ボトル売上（税込）×歩合
+   金額：時給×時間 ＋ 時給×割増×夜10時〜朝5時の時間 ＋ 時給×同伴の回数（1回＝douhanHours 時間）＋ ドリンク杯数×drinkBack ＋ ボトル売上（税込）×歩合
+   K-style（R8）から写した日は、同伴・イベントの時間がもう時間に入っているので同伴は足さない。ドリンクは K-style の「ドリンク」行を使う
    ============================================================ */
 function bottlesOf_(month) {
   return readAll_("bottles").filter(b => String(b.date).slice(0, 7) === month && !isTrue_(b.deleted))
@@ -414,6 +419,8 @@ function computePay_(month) {
   const S = getSettings_();
   const prem = +S.nightExtra || 0;
   const tax = +S.saleTax || 0;
+  const drinkBack = S.drinkBack === undefined || S.drinkBack === "" ? 100 : +S.drinkBack || 0;
+  const douhanH = S.douhanHours === undefined || S.douhanHours === "" ? 1 : +S.douhanHours || 0;
   const staff = readAll_("staff");
   const tcs = readAll_("timecards").filter(r => r.month === month);
   const sh = readAll_("shifts").find(r => r.month === month);
@@ -423,10 +430,13 @@ function computePay_(month) {
   const y = +month.slice(0, 4), m = +month.slice(5, 7), n = new Date(y, m, 0).getDate();
   const rows = staff.map(s => {
     const doc = tcs.find(r => r.staffId === s.id) || { days: {} };
-    const kd = kstyleDays_(ks, s.id);
-    let days = 0, mins = 0, night = 0, planMins = 0;
+    const kd = kstyleDays_(ks, s.id), kdr = kstyleDrinks_(ks, s.id);
+    let days = 0, mins = 0, night = 0, planMins = 0, drinks = 0, douhan = 0;
     for (let d = 1; d <= n; d++) {
-      let w = recMins_((doc.days || {})[d], S), plan = false;
+      const rec = (doc.days || {})[d];
+      let w = recMins_(rec, S), plan = false;
+      if (rec && rec.in) { drinks += +rec.drinks || 0; douhan += +rec.douhan ? 1 : 0; }
+      else drinks += +kdr[d] || 0;
       if (!w && kd[d]) w = { total: Math.round(kd[d] * 60), night: 0 };   // 打刻がない日は K-style（R8）の時間
       if (!w) { w = cellMins_(cells[d + "_" + s.id], S); plan = !!w; }
       if (!w || !w.total) continue;
@@ -435,21 +445,23 @@ function computePay_(month) {
     const wage = +s.wage || 0, rate = +s.rate || 0;
     const mine = bottles.filter(b => b.staffId === s.id);
     const salesTotal = mine.reduce((t, b) => t + b.price * b.qty, 0);
-    const wagePay = Math.round(wage * mins / 60 + wage * prem * night / 60);
+    const douhanPay = Math.round(wage * douhanH * douhan);
+    const wagePay = Math.round(wage * mins / 60 + wage * prem * night / 60) + douhanPay;
+    const drinkPay = drinks * drinkBack;
     const salesNet = Math.round(salesTotal / (1 + tax));
     const commission = Math.round(salesNet * rate);
     return { staffId: s.id, name: s.name, days, hours: Math.round(mins / 6) / 10, nightHours: Math.round(night / 6) / 10, planHours: Math.round(planMins / 6) / 10,
-      wage, rate, wagePay, salesTotal, salesNet, bottles: mine.reduce((t, b) => t + b.qty, 0), commission, total: wagePay + commission };
-  }).filter(r => r.days || r.salesTotal);
+      wage, rate, wagePay, douhan, douhanPay, drinks, drinkPay, salesTotal, salesNet, bottles: mine.reduce((t, b) => t + b.qty, 0), commission, total: wagePay + drinkPay + commission };
+  }).filter(r => r.days || r.salesTotal || r.drinks);
   const sum = k => rows.reduce((t, r) => t + r[k], 0);
-  return { month, staff: rows, fixed: sum("wagePay"), variable: sum("commission"), total: sum("total"), hours: Math.round(sum("hours") * 10) / 10, salesTotal: sum("salesTotal"),
-    salesNet: sum("salesNet"), saleTax: tax, noWage: rows.filter(r => r.hours && !r.wage).map(r => r.name), nightPremium: prem, basis: "シフト表からの見込み（打刻があれば打刻、なければK-style（R8）の時間、なければ公開済みシフトの予定）。freeeの給与とは別" };
+  return { month, staff: rows, fixed: sum("wagePay"), variable: sum("commission") + sum("drinkPay"), drinkPay: sum("drinkPay"), drinks: sum("drinks"), douhan: sum("douhan"), douhanPay: sum("douhanPay"), drinkBack, douhanHours: douhanH, total: sum("total"), hours: Math.round(sum("hours") * 10) / 10, salesTotal: sum("salesTotal"),
+    salesNet: sum("salesNet"), saleTax: tax, noWage: rows.filter(r => r.hours && !r.wage).map(r => r.name), nightPremium: prem, basis: "シフト表からの見込み（打刻があれば打刻、なければK-style（R8）の時間、なければ公開済みシフトの予定。同伴は時給1時間分・ドリンクは1杯" + drinkBack + "円）。freeeの給与とは別" };
 }
-// 経営ボード（rinoa-order）が読むシート。fixed＝時給の分（固定費）、variable＝歩合の分（変動費）
+// 経営ボード（rinoa-order）が読むシート。fixed＝時給の分（同伴を含む・固定費）、variable＝歩合とドリンクバックの分（変動費）
 function savePayroll_(month) {
   const p = computePay_(month);
   upsert_("payroll", ["month"], { month, fixed: p.fixed, variable: p.variable, total: p.total, hours: p.hours, salesTotal: p.salesTotal, basis: p.basis, updatedAt: nowStr_(),
-    detail: p.staff.map(r => ({ name: r.name, hours: r.hours, nightHours: r.nightHours, wagePay: r.wagePay, salesTotal: r.salesTotal, salesNet: r.salesNet, commission: r.commission, total: r.total })) });
+    detail: p.staff.map(r => ({ name: r.name, hours: r.hours, nightHours: r.nightHours, wagePay: r.wagePay, douhan: r.douhan, drinks: r.drinks, drinkPay: r.drinkPay, salesTotal: r.salesTotal, salesNet: r.salesNet, commission: r.commission, total: r.total })) });
   return p;
 }
 function payrollJob() {
@@ -505,20 +517,21 @@ function writeHoursMonth_(ss, month) {
   const pay = computePay_(month), payOf = id => pay.staff.find(r => r.staffId === id) || {};
   const ks = kstyleOf_(month);
   const staff = hoursStaff_(month, tcs).concat(Object.keys(ks).filter(l => !ks[l].staffId).map(l => ({ id: "", name: l + "（シフト表に未登録）", ksLabel: l })));
-  const W = n + 8;   // A列＋日付n列＋右の7列
+  const RC = 10, W = n + 1 + RC;   // A列＋日付n列＋右の10列
   const sh = hoursSheet_(ss, y + "年" + m + "月", 1);
   const vals = [], colors = [], notes = [];
   const blank = () => new Array(W).fill("");
   const r1 = blank(); r1[0] = "リノア 勤務時間表　" + y + "年" + m + "月"; r1[n + 1] = "更新：" + fmt_(new Date(), "M/d H:mm");
-  const r2 = blank(); r2[0] = "黒い数字＝打刻した時間（" + (+S.tcUnit || 30) + "分刻み・休憩を引く）／灰色＝打刻がない日のシフトの予定／「出勤中」＝まだ退勤していない／青い数字＝旧表 K-style（R8）から写した時間。数字のマスに印（右上の三角）があれば、出勤・退勤の時刻が見られます";
+  const r2 = blank();   r2[0] = "黒い数字＝打刻した時間（" + (+S.tcUnit || 30) + "分刻み・休憩を引く）／灰色＝打刻がない日のシフトの予定／「出勤中」＝まだ退勤していない／青い数字＝旧表 K-style（R8）から写した時間（同伴・イベントの分もこみ）。数字のマスに印（右上の三角）があれば、出勤・退勤の時刻とドリンクの杯数が見られます。同伴は時給1時間分、ドリンクは1杯" + pay.drinkBack + "円";
   const r3 = ["日付"], r4 = ["曜日"];
   for (let d = 1; d <= n; d++) { r3.push(m + "/" + d); r4.push(HOURS_WD[new Date(y, m - 1, d).getDay()]); }
-  r3.push("打刻・K-styleの時間", "予定も入れた時間", "出勤日数", "時給", "時給の分", "歩合", "お給料の見込み"); r4.push("", "", "", "", "", "", "");
+  r3.push("打刻・K-styleの時間", "予定も入れた時間", "出勤日数", "同伴（回）", "ドリンク（杯）", "時給", "時給の分（同伴こみ）", "ドリンクバック", "歩合", "お給料の見込み"); r4.push("", "", "", "", "", "", "", "", "", "");
   [r1, r2, r3, r4].forEach(r => { vals.push(r); colors.push(new Array(W).fill("#000000")); notes.push(new Array(W).fill("")); });
   const dayTot = new Array(n + 1).fill(0);
   staff.forEach(s => {
     const doc = tcs.find(t => t.staffId === s.id) || { days: {} };
     const kd = s.ksLabel ? ks[s.ksLabel].days : kstyleDays_(ks, s.id);
+    const kdr = s.ksLabel ? (ks[s.ksLabel].drinks || {}) : kstyleDrinks_(ks, s.id);
     const row = [s.name], col = ["#000000"], nt = [""];
     let real = 0;
     for (let d = 1; d <= n; d++) {
@@ -526,20 +539,21 @@ function writeHoursMonth_(ss, month) {
       if (!x) { row.push(""); col.push("#000000"); nt.push(""); continue; }
       if (x.open) { row.push("出勤中"); col.push("#c0392b"); nt.push("出勤 " + hoursClock_(x.rec.in, ymd) + "（退勤がまだ）"); continue; }
       row.push(Math.round(x.h * 100) / 100); col.push(x.plan ? "#a0a0a0" : x.ks ? "#2a6fdb" : "#000000");
-      nt.push(x.plan ? "打刻なし（シフトの予定）" : x.ks ? "K-style（R8）から写した時間" : "出勤 " + hoursClock_(x.rec.in, ymd) + " → 退勤 " + hoursClock_(x.rec.out, ymd) + (+x.rec.brk ? "（休憩" + x.rec.brk + "分）" : "") + (x.rec.edited ? "\n経営者が修正" : ""));
+      nt.push(x.plan ? "打刻なし（シフトの予定）" : x.ks ? "K-style（R8）から写した時間" + (kdr[d] ? "\nドリンク" + kdr[d] + "杯" : "") : "出勤 " + hoursClock_(x.rec.in, ymd) + " → 退勤 " + hoursClock_(x.rec.out, ymd) + (+x.rec.brk ? "（休憩" + x.rec.brk + "分）" : "") + (extraText_(x.rec) ? "\n" + extraText_(x.rec) : "") + (x.rec.edited ? "\n経営者が修正" : ""));
       if (!x.plan) { real += x.h; dayTot[d] += x.h; }
     }
     const p = s.ksLabel ? {} : payOf(s.id);
-    if (s.ksLabel) row.push(Math.round(real * 100) / 100, Math.round(real * 100) / 100, Object.keys(kd).length, "", "", "", "");
-    else row.push(Math.round(real * 100) / 100, p.hours || 0, p.days || 0, +s.wage || 0, p.wagePay || 0, p.commission || 0, p.total || 0);
-    for (let i = 0; i < 7; i++) { col.push("#000000"); nt.push(""); }
+    if (s.ksLabel) row.push(Math.round(real * 100) / 100, Math.round(real * 100) / 100, Object.keys(kd).length, "", Object.values(kdr).reduce((a, b) => a + b, 0) || "", "", "", "", "", "");
+    else row.push(Math.round(real * 100) / 100, p.hours || 0, p.days || 0, p.douhan || "", p.drinks || "", +s.wage || 0, p.wagePay || 0, p.drinkPay || 0, p.commission || 0, p.total || 0);
+    for (let i = 0; i < RC; i++) { col.push("#000000"); nt.push(""); }
     vals.push(row); colors.push(col); notes.push(nt);
   });
   const tot = ["合計"];
   for (let d = 1; d <= n; d++) tot.push(dayTot[d] ? Math.round(dayTot[d] * 100) / 100 : "");
   const sumCol = k => staff.reduce((t, s) => t + (+(payOf(s.id)[k]) || 0), 0);
   const extraH = staff.filter(s => s.ksLabel).reduce((t, s) => t + Object.values(ks[s.ksLabel].days).reduce((a, b) => a + b, 0), 0);
-  tot.push(Math.round(dayTot.reduce((a, b) => a + b, 0) * 100) / 100, Math.round(((pay.hours || 0) + extraH) * 100) / 100, "", "", pay.fixed || 0, pay.variable || 0, pay.total || 0);
+  const extraDr = staff.filter(s => s.ksLabel).reduce((t, s) => t + Object.values(ks[s.ksLabel].drinks || {}).reduce((a, b) => a + b, 0), 0);
+  tot.push(Math.round(dayTot.reduce((a, b) => a + b, 0) * 100) / 100, Math.round(((pay.hours || 0) + extraH) * 100) / 100, "", pay.douhan || "", (pay.drinks || 0) + extraDr || "", "", pay.fixed || 0, pay.drinkPay || 0, (pay.variable || 0) - (pay.drinkPay || 0), pay.total || 0);
   vals.push(tot); colors.push(new Array(W).fill("#000000")); notes.push(new Array(W).fill(""));
   const rows = vals.length;
   [vals, colors, notes].forEach(a => a.forEach(r => { while (r.length < W) r.push(a === colors ? "#000000" : ""); r.length = W; }));   // 行の長さをそろえる（ずれると setValues が止まる）
@@ -553,15 +567,15 @@ function writeHoursMonth_(ss, month) {
   }
   if (staff.length) {
     sh.getRange(5, 2, staff.length + 1, n + 3).setNumberFormat("0.0#").setHorizontalAlignment("center");
-    sh.getRange(5, n + 4, staff.length + 1, 1).setNumberFormat("0").setHorizontalAlignment("center");
-    sh.getRange(5, n + 5, staff.length + 1, 4).setNumberFormat("#,##0").setHorizontalAlignment("right");
+    sh.getRange(5, n + 4, staff.length + 1, 3).setNumberFormat("0").setHorizontalAlignment("center");
+    sh.getRange(5, n + 7, staff.length + 1, 5).setNumberFormat("#,##0").setHorizontalAlignment("right");
     sh.getRange(5, 1, staff.length, 1).setFontWeight("bold");
   }
   sh.getRange(rows, 1, 1, W).setFontWeight("bold").setBackground("#fff7e0");
   sh.getRange(3, n + 2, rows - 2, 1).setBackground("#eef6ee");
   sh.getRange(3, W, rows - 2, 1).setBackground("#eef6ee").setFontWeight("bold");
   sh.getRange(3, 1, rows - 2, W).setBorder(true, true, true, true, true, true, "#cccccc", SpreadsheetApp.BorderStyle.SOLID);
-  sh.setColumnWidth(1, 150); sh.setColumnWidths(2, n, 44); sh.setColumnWidths(n + 2, 7, 92);
+  sh.setColumnWidth(1, 150); sh.setColumnWidths(2, n, 44); sh.setColumnWidths(n + 2, RC, 92);
   sh.setRowHeight(2, 20); sh.setFrozenRows(4); sh.setFrozenColumns(1);
   return sh;
 }
@@ -587,8 +601,8 @@ function writeHoursYesterday_(ss) {
     if (x.plan) { vals.push([s.name, "", "", "", "", +s.wage || "", "", "打刻がありません（シフトでは " + Math.round(x.h * 10) / 10 + " 時間の予定）"]); return; }
     const pay = Math.round((+s.wage || 0) * x.h);
     totH += x.h; totPay += pay;
-    if (x.ks) { vals.push([s.name, "", "", "", Math.round(x.h * 100) / 100, +s.wage || "", pay, "K-style（R8）から写した時間"]); return; }
-    vals.push([s.name, hoursClock_(x.rec.in, ymd), hoursClock_(x.rec.out, ymd), +x.rec.brk || 0, Math.round(x.h * 100) / 100, +s.wage || "", pay, x.rec.edited ? "経営者が修正" : ""]);
+    if (x.ks) { const dr = kstyleDrinks_(ks, s.id)[d]; vals.push([s.name, "", "", "", Math.round(x.h * 100) / 100, +s.wage || "", pay, "K-style（R8）から写した時間" + (dr ? "・ドリンク" + dr + "杯" : "")]); return; }
+    vals.push([s.name, hoursClock_(x.rec.in, ymd), hoursClock_(x.rec.out, ymd), +x.rec.brk || 0, Math.round(x.h * 100) / 100, +s.wage || "", pay, [extraText_(x.rec), x.rec.edited ? "経営者が修正" : ""].filter(Boolean).join("・")]);
   });
   if (!any) vals.push(["この日の勤務はありません", "", "", "", "", "", "", ""]);
   vals.push(["合計", "", "", "", Math.round(totH * 100) / 100, "", totPay, ""]);
@@ -596,10 +610,10 @@ function writeHoursYesterday_(ss) {
   const pay = computePay_(month);
   vals.push(["", "", "", "", "", "", "", ""]);
   vals.push([p[1] + "月のこれまで（打刻・K-style（R8）＋これからの予定）", "", "", "", "", "", "", ""]);
-  vals.push(["名前", "出勤日数", "時間", "", "時給の分", "歩合", "お給料の見込み", ""]);
+  vals.push(["名前", "出勤日数", "時間", "ドリンクバック", "時給の分（同伴こみ）", "歩合", "お給料の見込み", ""]);
   const sumStart = vals.length + 1;
-  pay.staff.forEach(r => vals.push([r.name, r.days, r.hours, "", r.wagePay, r.commission, r.total, ""]));
-  vals.push(["合計", "", pay.hours, "", pay.fixed, pay.variable, pay.total, "日ごとの表は「" + p[0] + "年" + p[1] + "月」シート"]);
+  pay.staff.forEach(r => vals.push([r.name, r.days, r.hours, r.drinkPay, r.wagePay, r.commission, r.total, [r.drinks ? "ドリンク" + r.drinks + "杯" : "", r.douhan ? "同伴" + r.douhan + "回" : ""].filter(Boolean).join("・")]));
+  vals.push(["合計", "", pay.hours, pay.drinkPay, pay.fixed, pay.variable - pay.drinkPay, pay.total, "日ごとの表は「" + p[0] + "年" + p[1] + "月」シート"]);
   const rows = vals.length, lastY = 4 + Math.max(any, 1);
   sh.getRange(1, 1, rows, 8).setValues(vals).setVerticalAlignment("middle");
   sh.getRange(1, 1).setFontSize(16).setFontWeight("bold");
@@ -611,7 +625,7 @@ function writeHoursYesterday_(ss) {
   sh.getRange(4, 5, lastY - 3, 1).setNumberFormat("0.0#").setFontWeight("bold").setFontSize(12);
   sh.getRange(4, 6, lastY - 3, 2).setNumberFormat("#,##0");
   sh.getRange(sumStart, 3, rows - sumStart + 1, 1).setNumberFormat("0.0#");
-  sh.getRange(sumStart, 5, rows - sumStart + 1, 3).setNumberFormat("#,##0");
+  sh.getRange(sumStart, 4, rows - sumStart + 1, 4).setNumberFormat("#,##0");
   sh.getRange(3, 1, lastY - 2, 8).setBorder(true, true, true, true, true, true, "#cccccc", SpreadsheetApp.BorderStyle.SOLID);
   sh.getRange(sumStart - 1, 1, rows - sumStart + 2, 7).setBorder(true, true, true, true, true, true, "#cccccc", SpreadsheetApp.BorderStyle.SOLID);
   sh.setColumnWidth(1, 120); sh.setColumnWidths(2, 6, 90); sh.setColumnWidth(8, 300);
@@ -638,21 +652,30 @@ function kstyleImport_() {
     const from = v.findIndex(r => String(r[0]).trim() === "人件費合計"), to = v.findIndex((r, i) => i > from && /材料費合計/.test(String(r[0])));
     if (from < 0) return;
     const data = {};
+    let cur = null;   // いま読んでいる人（ドリンクの行はその人の名前の行のすぐ下にある）
     v.slice(from + 1, to < 0 ? undefined : to).forEach(r => {
       const label = String(r[0]).trim();
-      if (!label || KSTYLE_SKIP.test(label)) return;
+      if (!label) return;
+      if (/ドリンク/.test(label)) {
+        if (!cur) return;
+        for (let d = 1; d <= last; d++) { const c = Math.floor(+r[d]); if (c > 0 && c < 100) { cur.drinks = cur.drinks || {}; cur.drinks[d] = (cur.drinks[d] || 0) + c; } }
+        return;
+      }
+      if (KSTYLE_SKIP.test(label)) return;
       const days = {};
       for (let d = 1; d <= last; d++) { const h = +r[d]; if (h > 0 && h < 24) days[d] = h; }
-      if (!Object.keys(days).length) return;
       const keys = KSTYLE_ALIAS[label] || [label];
       const st = staff.find(s => keys.some(k => String(s.name).indexOf(k) >= 0 || String(s.short || "").indexOf(k) >= 0));
-      data[label] = { staffId: st ? st.id : "", days };
+      cur = { staffId: st ? st.id : "", days };
+      data[label] = cur;
     });
+    Object.keys(data).forEach(l => { if (!Object.keys(data[l].days).length && !data[l].drinks) delete data[l]; });
     upsert_("kstyle", ["month"], { month, data, updatedAt: nowStr_() });
   });
 }
 function kstyleOf_(month) { const r = readAll_("kstyle").find(x => x.month === month); return (r && r.data) || {}; }
 function kstyleDays_(ks, staffId) { const o = {}; Object.keys(ks).forEach(l => { if (staffId && ks[l].staffId === staffId) Object.assign(o, ks[l].days); }); return o; }
+function kstyleDrinks_(ks, staffId) { const o = {}; Object.keys(ks).forEach(l => { if (staffId && ks[l].staffId === staffId) Object.assign(o, ks[l].drinks || {}); }); return o; }
 // 1時間ごと：昨日・今月（月の初め5日間は先月も）を書き直す
 function hoursJob() {
   try { kstyleImport_(); } catch (e) { Logger.log("kstyle " + e); }
@@ -814,6 +837,7 @@ function punch_(staffRow, data, via) {
     const r = doc.days[day];
     if (!r || !r.in) throw new Error("not_in");
     r.out = stamp; r.brk = Math.max(0, +data.brk || 0); r.viaOut = via;
+    setExtras_(r, data);
   } else if (data.type === "fixOut") {
     const r = doc.days[day];
     if (!r || !r.in) throw new Error("not_in");
@@ -844,6 +868,13 @@ function punch_(staffRow, data, via) {
 function addEdit_(doc, day, by, what) {
   doc.edits = (doc.edits || []).concat([{ at: nowStr_().slice(0, 16), day: String(+day), by, what }]).slice(-300);
 }
+// ドリンクの杯数（0〜99）と同伴（あり＝1）を記録に入れる
+function setExtras_(rec, src) {
+  const dr = Math.min(99, Math.max(0, Math.floor(+src.drinks || 0)));
+  if (dr) rec.drinks = dr; else delete rec.drinks;
+  if (src.douhan === true || +src.douhan > 0) rec.douhan = 1; else delete rec.douhan;
+}
+function extraText_(r) { return [r && +r.drinks ? "ドリンク" + r.drinks + "杯" : "", r && +r.douhan ? "同伴" : ""].filter(Boolean).join("・"); }
 function recText_(r) { if (!r || !r.in) return "記録なし"; return r.in.slice(11, 16) + "〜" + (r.out ? r.out.slice(11, 16) : "未退勤") + (r.brk ? " 休憩" + r.brk + "分" : ""); }
 function whoName_(auth, staff) { const s = (staff || []).find(x => x.userId === auth.userId); return s ? s.name : (auth.name || "管理者"); }
 
@@ -890,6 +921,8 @@ function sanitizeSettings_(s) {
   if (s.notifyPublish !== undefined) o.notifyPublish = !!s.notifyPublish;
   if (s.notifyDeadline !== undefined) o.notifyDeadline = !!s.notifyDeadline;
   if (s.nightExtra !== undefined) o.nightExtra = Math.min(1, Math.max(0, +s.nightExtra || 0));
+  if (s.drinkBack !== undefined) o.drinkBack = Math.min(10000, Math.max(0, Math.round(+s.drinkBack || 0)));
+  if (s.douhanHours !== undefined) o.douhanHours = Math.min(5, Math.max(0, +s.douhanHours || 0));
   return o;
 }
 
