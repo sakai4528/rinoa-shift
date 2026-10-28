@@ -14,7 +14,7 @@
  *   4. デプロイ → 新しいデプロイ → ウェブアプリ（実行ユーザー: 自分 / アクセス: 全員）
  */
 
-const VERSION = "2026-10-28.2";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
+const VERSION = "2026-10-28.3";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
 const TZ = "Asia/Tokyo";
 const PROP = PropertiesService.getScriptProperties();
 
@@ -46,9 +46,10 @@ const SHEETS = {
   devices:   ["id", "name", "key", "createdAt", "lastSeen"],
   log:       ["at", "userId", "action", "detail"],
   bottles:   ["id", "date", "staffId", "kind", "item", "price", "qty", "checked", "deleted", "by", "createdAt"],
-  payroll:   ["month", "fixed", "variable", "total", "hours", "salesTotal", "basis", "updatedAt", "detail"]
+  payroll:   ["month", "fixed", "variable", "total", "hours", "salesTotal", "basis", "updatedAt", "detail"],
+  kstyle:    ["month", "data", "updatedAt"]   // 旧表 K-style（R8）の勤務時間の写し（hoursJob が1時間ごとに書く）
 };
-const JSON_COLS = { settings: ["value"], shifts: ["cells"], wishes: ["days"], timecards: ["days"], payroll: ["detail"] };
+const JSON_COLS = { settings: ["value"], shifts: ["cells"], wishes: ["days"], timecards: ["days"], payroll: ["detail"], kstyle: ["data"] };
 
 /* ============================================================
    HTTP 入口
@@ -418,12 +419,15 @@ function computePay_(month) {
   const sh = readAll_("shifts").find(r => r.month === month);
   const cells = sh && sh.status === "published" ? (sh.cells || {}) : {};
   const bottles = bottlesOf_(month);
+  const ks = kstyleOf_(month);
   const y = +month.slice(0, 4), m = +month.slice(5, 7), n = new Date(y, m, 0).getDate();
   const rows = staff.map(s => {
     const doc = tcs.find(r => r.staffId === s.id) || { days: {} };
+    const kd = kstyleDays_(ks, s.id);
     let days = 0, mins = 0, night = 0, planMins = 0;
     for (let d = 1; d <= n; d++) {
       let w = recMins_((doc.days || {})[d], S), plan = false;
+      if (!w && kd[d]) w = { total: Math.round(kd[d] * 60), night: 0 };   // 打刻がない日は K-style（R8）の時間
       if (!w) { w = cellMins_(cells[d + "_" + s.id], S); plan = !!w; }
       if (!w || !w.total) continue;
       days++; mins += w.total; night += w.night; if (plan) planMins += w.total;
@@ -439,7 +443,7 @@ function computePay_(month) {
   }).filter(r => r.days || r.salesTotal);
   const sum = k => rows.reduce((t, r) => t + r[k], 0);
   return { month, staff: rows, fixed: sum("wagePay"), variable: sum("commission"), total: sum("total"), hours: Math.round(sum("hours") * 10) / 10, salesTotal: sum("salesTotal"),
-    salesNet: sum("salesNet"), saleTax: tax, noWage: rows.filter(r => r.hours && !r.wage).map(r => r.name), nightPremium: prem, basis: "シフト表からの見込み（打刻があれば打刻、なければ公開済みシフトの予定）。freeeの給与とは別" };
+    salesNet: sum("salesNet"), saleTax: tax, noWage: rows.filter(r => r.hours && !r.wage).map(r => r.name), nightPremium: prem, basis: "シフト表からの見込み（打刻があれば打刻、なければK-style（R8）の時間、なければ公開済みシフトの予定）。freeeの給与とは別" };
 }
 // 経営ボード（rinoa-order）が読むシート。fixed＝時給の分（固定費）、variable＝歩合の分（変動費）
 function savePayroll_(month) {
@@ -478,11 +482,12 @@ function hoursClock_(stamp, baseYmd) {
   return String(stamp).slice(0, 10) > baseYmd ? "翌" + t : t;
 }
 // スタッフ1人・1日ぶん：{ h:時間, plan:予定か, open:退勤未, rec }
-function hoursDay_(doc, cells, s, ymd, S) {
+function hoursDay_(doc, cells, s, ymd, S, kd) {
   const d = +ymd.slice(8), rec = ((doc && doc.days) || {})[d];
   if (rec && rec.in && !rec.out) return { open: true, rec };
   const w = recMins_(rec, S);
   if (w) return { h: w.total / 60, rec };
+  if (kd && kd[d]) return { h: kd[d], ks: true };
   const p = cellMins_(cells[d + "_" + s.id], S);
   if (p && p.total) return { h: p.total / 60, plan: true };
   return null;
@@ -498,41 +503,45 @@ function writeHoursMonth_(ss, month) {
   const shRow = readAll_("shifts").find(r => r.month === month);
   const cells = shRow && shRow.status === "published" ? (shRow.cells || {}) : {};
   const pay = computePay_(month), payOf = id => pay.staff.find(r => r.staffId === id) || {};
-  const staff = hoursStaff_(month, tcs);
+  const ks = kstyleOf_(month);
+  const staff = hoursStaff_(month, tcs).concat(Object.keys(ks).filter(l => !ks[l].staffId).map(l => ({ id: "", name: l + "（シフト表に未登録）", ksLabel: l })));
   const W = n + 7;   // A列＋日付n列＋右の6列
   const sh = hoursSheet_(ss, y + "年" + m + "月", 1);
   const vals = [], colors = [], notes = [];
   const blank = () => new Array(W).fill("");
   const r1 = blank(); r1[0] = "リノア 勤務時間表　" + y + "年" + m + "月"; r1[n + 1] = "更新：" + fmt_(new Date(), "M/d H:mm");
-  const r2 = blank(); r2[0] = "黒い数字＝打刻した時間（" + (+S.tcUnit || 30) + "分刻み・休憩を引く）／灰色＝打刻がない日のシフトの予定／「出勤中」＝まだ退勤していない。数字のマスに印（右上の三角）があれば、出勤・退勤の時刻が見られます";
+  const r2 = blank(); r2[0] = "黒い数字＝打刻した時間（" + (+S.tcUnit || 30) + "分刻み・休憩を引く）／灰色＝打刻がない日のシフトの予定／「出勤中」＝まだ退勤していない／青い数字＝旧表 K-style（R8）から写した時間。数字のマスに印（右上の三角）があれば、出勤・退勤の時刻が見られます";
   const r3 = ["日付"], r4 = ["曜日"];
   for (let d = 1; d <= n; d++) { r3.push(m + "/" + d); r4.push(HOURS_WD[new Date(y, m - 1, d).getDay()]); }
-  r3.push("打刻の時間", "予定も入れた時間", "出勤日数", "時給", "時給の分", "歩合"); r4.push("", "", "", "", "", "");
+  r3.push("打刻・K-styleの時間", "予定も入れた時間", "出勤日数", "時給", "時給の分", "歩合"); r4.push("", "", "", "", "", "");
   // 右端に「お給料の見込み」
   r3[W - 1] = "お給料の見込み"; r4[W - 1] = "";
   [r1, r2, r3, r4].forEach(r => { vals.push(r); colors.push(new Array(W).fill("#000000")); notes.push(new Array(W).fill("")); });
   const dayTot = new Array(n + 1).fill(0);
   staff.forEach(s => {
     const doc = tcs.find(t => t.staffId === s.id) || { days: {} };
+    const kd = s.ksLabel ? ks[s.ksLabel].days : kstyleDays_(ks, s.id);
     const row = [s.name], col = ["#000000"], nt = [""];
     let real = 0;
     for (let d = 1; d <= n; d++) {
-      const ymd = month + "-" + ("0" + d).slice(-2), x = hoursDay_(doc, cells, s, ymd, S);
+      const ymd = month + "-" + ("0" + d).slice(-2), x = hoursDay_(s.ksLabel ? null : doc, s.ksLabel ? {} : cells, s, ymd, S, kd);
       if (!x) { row.push(""); col.push("#000000"); nt.push(""); continue; }
       if (x.open) { row.push("出勤中"); col.push("#c0392b"); nt.push("出勤 " + hoursClock_(x.rec.in, ymd) + "（退勤がまだ）"); continue; }
-      row.push(Math.round(x.h * 100) / 100); col.push(x.plan ? "#a0a0a0" : "#000000");
-      nt.push(x.plan ? "打刻なし（シフトの予定）" : "出勤 " + hoursClock_(x.rec.in, ymd) + " → 退勤 " + hoursClock_(x.rec.out, ymd) + (+x.rec.brk ? "（休憩" + x.rec.brk + "分）" : "") + (x.rec.edited ? "\n経営者が修正" : ""));
+      row.push(Math.round(x.h * 100) / 100); col.push(x.plan ? "#a0a0a0" : x.ks ? "#2a6fdb" : "#000000");
+      nt.push(x.plan ? "打刻なし（シフトの予定）" : x.ks ? "K-style（R8）から写した時間" : "出勤 " + hoursClock_(x.rec.in, ymd) + " → 退勤 " + hoursClock_(x.rec.out, ymd) + (+x.rec.brk ? "（休憩" + x.rec.brk + "分）" : "") + (x.rec.edited ? "\n経営者が修正" : ""));
       if (!x.plan) { real += x.h; dayTot[d] += x.h; }
     }
-    const p = payOf(s.id);
-    row.push(Math.round(real * 100) / 100, p.hours || 0, p.days || 0, +s.wage || 0, p.wagePay || 0, p.commission || 0, p.total || 0);
+    const p = s.ksLabel ? {} : payOf(s.id);
+    if (s.ksLabel) row.push(Math.round(real * 100) / 100, Math.round(real * 100) / 100, Object.keys(kd).length, "", "", "", "");
+    else row.push(Math.round(real * 100) / 100, p.hours || 0, p.days || 0, +s.wage || 0, p.wagePay || 0, p.commission || 0, p.total || 0);
     for (let i = 0; i < 7; i++) { col.push("#000000"); nt.push(""); }
     vals.push(row); colors.push(col); notes.push(nt);
   });
   const tot = ["合計"];
   for (let d = 1; d <= n; d++) tot.push(dayTot[d] ? Math.round(dayTot[d] * 100) / 100 : "");
   const sumCol = k => staff.reduce((t, s) => t + (+(payOf(s.id)[k]) || 0), 0);
-  tot.push(Math.round(dayTot.reduce((a, b) => a + b, 0) * 100) / 100, pay.hours || 0, "", "", pay.fixed || 0, pay.variable || 0, pay.total || 0);
+  const extraH = staff.filter(s => s.ksLabel).reduce((t, s) => t + Object.values(ks[s.ksLabel].days).reduce((a, b) => a + b, 0), 0);
+  tot.push(Math.round(dayTot.reduce((a, b) => a + b, 0) * 100) / 100, Math.round(((pay.hours || 0) + extraH) * 100) / 100, "", "", pay.fixed || 0, pay.variable || 0, pay.total || 0);
   vals.push(tot); colors.push(new Array(W).fill("#000000")); notes.push(new Array(W).fill(""));
   const rows = vals.length;
   sh.getRange(1, 1, rows, W).setValues(vals).setFontColors(colors).setNotes(notes).setVerticalAlignment("middle");
@@ -565,20 +574,21 @@ function writeHoursYesterday_(ss) {
   const tcs = readAll_("timecards").filter(r => r.month === month);
   const shRow = readAll_("shifts").find(r => r.month === month);
   const cells = shRow && shRow.status === "published" ? (shRow.cells || {}) : {};
-  const staff = hoursStaff_(month, tcs);
+  const staff = hoursStaff_(month, tcs), ks = kstyleOf_(month);
   const sh = hoursSheet_(ss, "昨日", 0);
   const vals = [["きのう " + p[1] + "月" + p[2] + "日（" + wd + "）の勤務", "", "", "", "", "", "", ""],
     ["更新：" + fmt_(new Date(), "M/d H:mm") + "　（朝6時までは前の日として数えます）", "", "", "", "", "", "", ""],
     ["名前", "出勤", "退勤", "休憩（分）", "働いた時間", "時給", "時給の分", "メモ"]];
   let totH = 0, totPay = 0, any = 0;
   staff.forEach(s => {
-    const doc = tcs.find(t => t.staffId === s.id) || { days: {} }, x = hoursDay_(doc, cells, s, ymd, S);
+    const doc = tcs.find(t => t.staffId === s.id) || { days: {} }, x = hoursDay_(doc, cells, s, ymd, S, kstyleDays_(ks, s.id));
     if (!x) return;
     any++;
     if (x.open) { vals.push([s.name, hoursClock_(x.rec.in, ymd), "", "", "", +s.wage || "", "", "退勤の打刻がありません"]); return; }
     if (x.plan) { vals.push([s.name, "", "", "", "", +s.wage || "", "", "打刻がありません（シフトでは " + Math.round(x.h * 10) / 10 + " 時間の予定）"]); return; }
     const pay = Math.round((+s.wage || 0) * x.h);
     totH += x.h; totPay += pay;
+    if (x.ks) { vals.push([s.name, "", "", "", Math.round(x.h * 100) / 100, +s.wage || "", pay, "K-style（R8）から写した時間"]); return; }
     vals.push([s.name, hoursClock_(x.rec.in, ymd), hoursClock_(x.rec.out, ymd), +x.rec.brk || 0, Math.round(x.h * 100) / 100, +s.wage || "", pay, x.rec.edited ? "経営者が修正" : ""]);
   });
   if (!any) vals.push(["この日の勤務はありません", "", "", "", "", "", "", ""]);
@@ -586,7 +596,7 @@ function writeHoursYesterday_(ss) {
   // 今月これまで（月の初めのころは先月分も見られるよう、月のシートへ案内）
   const pay = computePay_(month);
   vals.push(["", "", "", "", "", "", "", ""]);
-  vals.push([p[1] + "月のこれまで（打刻＋これからの予定）", "", "", "", "", "", "", ""]);
+  vals.push([p[1] + "月のこれまで（打刻・K-style（R8）＋これからの予定）", "", "", "", "", "", "", ""]);
   vals.push(["名前", "出勤日数", "時間", "", "時給の分", "歩合", "お給料の見込み", ""]);
   const sumStart = vals.length + 1;
   pay.staff.forEach(r => vals.push([r.name, r.days, r.hours, "", r.wagePay, r.commission, r.total, ""]));
@@ -609,8 +619,44 @@ function writeHoursYesterday_(ss) {
   sh.setFrozenRows(3);
   return sh;
 }
+/* ---------- 旧表 K-style（R8）の勤務時間を読む（読むだけ・旧表は変えない） ----------
+   月シート（「10月」など）の「人件費合計」の行から「材料費合計」の行までのうち、名前の行（ドリンク・ボトル手当などを除く）の
+   1日〜月末の数字＝働いた時間。昨日までの分を kstyle シートに写す。打刻がある日は打刻が優先 */
+const KSTYLE_SS_ID = "12RQVnhF50hkIInYJQlL0NqPcpO6gR0Q9nKoppU0_BME";
+const KSTYLE_SKIP = /ドリンク|ボトル|ゴルフ|タイムカード|手当|合計/;
+// K-style の呼び名 → シフト表の名前に含まれる文字
+const KSTYLE_ALIAS = { "真美": ["まみ", "真美"], "サキ": ["紗希", "サキ"], "弥生": ["弥生"], "侑冴": ["侑冴"], "みゆき": ["miyuki", "みゆき"], "佳代": ["佳代"], "えり": ["えり", "エリ"], "マオ": ["真央", "マオ"] };
+function kstyleImport_() {
+  const today = bizDate_(), months = [today.slice(0, 7)];
+  if (+today.slice(8) <= 5) { const p = today.split("-").map(Number); months.push(fmt_(new Date(p[0], p[1] - 2, 1, 12), "yyyy-MM")); }
+  const old = SpreadsheetApp.openById(KSTYLE_SS_ID), staff = readAll_("staff");
+  months.forEach(month => {
+    const sh = old.getSheetByName(+month.slice(5) + "月");
+    if (!sh) return;
+    const y = +month.slice(0, 4), m = +month.slice(5), n = new Date(y, m, 0).getDate();
+    const last = month < today.slice(0, 7) ? n : +today.slice(8) - 1;   // 昨日まで
+    const v = sh.getRange(1, 1, Math.min(sh.getLastRow(), 200), n + 1).getValues();
+    const from = v.findIndex(r => String(r[0]).trim() === "人件費合計"), to = v.findIndex((r, i) => i > from && /材料費合計/.test(String(r[0])));
+    if (from < 0) return;
+    const data = {};
+    v.slice(from + 1, to < 0 ? undefined : to).forEach(r => {
+      const label = String(r[0]).trim();
+      if (!label || KSTYLE_SKIP.test(label)) return;
+      const days = {};
+      for (let d = 1; d <= last; d++) { const h = +r[d]; if (h > 0 && h < 24) days[d] = h; }
+      if (!Object.keys(days).length) return;
+      const keys = KSTYLE_ALIAS[label] || [label];
+      const st = staff.find(s => keys.some(k => String(s.name).indexOf(k) >= 0 || String(s.short || "").indexOf(k) >= 0));
+      data[label] = { staffId: st ? st.id : "", days };
+    });
+    upsert_("kstyle", ["month"], { month, data, updatedAt: nowStr_() });
+  });
+}
+function kstyleOf_(month) { const r = readAll_("kstyle").find(x => x.month === month); return (r && r.data) || {}; }
+function kstyleDays_(ks, staffId) { const o = {}; Object.keys(ks).forEach(l => { if (staffId && ks[l].staffId === staffId) Object.assign(o, ks[l].days); }); return o; }
 // 1時間ごと：昨日・今月（月の初め5日間は先月も）を書き直す
 function hoursJob() {
+  try { kstyleImport_(); } catch (e) { Logger.log("kstyle " + e); }
   const ss = hoursBook_();
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(30000)) return ss;
@@ -1006,7 +1052,7 @@ function migrate_() {
   Object.keys(SHEETS).forEach(name => {
     const sh = getSheet_(name);
     sh.getRange(1, 1, Math.max(sh.getMaxRows(), 2), SHEETS[name].length).setNumberFormat("@");
-    const keys = { settings: ["key"], staff: ["id"], shifts: ["month"], wishes: ["month", "staffId"], timecards: ["month", "staffId"], admins: ["userId"], devices: ["id"], bottles: ["id"], payroll: ["month"] }[name];
+    const keys = { settings: ["key"], staff: ["id"], shifts: ["month"], wishes: ["month", "staffId"], timecards: ["month", "staffId"], admins: ["userId"], devices: ["id"], bottles: ["id"], payroll: ["month"], kstyle: ["month"] }[name];
     if (!keys) return;
     const rows = readAll_(name);
     const merged = {}; const order = [];
