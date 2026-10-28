@@ -14,7 +14,7 @@
  *   4. デプロイ → 新しいデプロイ → ウェブアプリ（実行ユーザー: 自分 / アクセス: 全員）
  */
 
-const VERSION = "2026-10-28.1";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
+const VERSION = "2026-10-28.2";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
 const TZ = "Asia/Tokyo";
 const PROP = PropertiesService.getScriptProperties();
 
@@ -355,6 +355,11 @@ function handle_(action, data, auth) {
       return { pay: savePayroll_(ym_(data.month)) };
     }
 
+    case "hoursBook": {   // 勤務時間表（見る用のスプレッドシート）を書き直してURLを返す
+      needAdmin();
+      return { url: hoursJob().getUrl() };
+    }
+
     default:
       throw new Error("unknown_action");
   }
@@ -379,8 +384,8 @@ function roundM_(m, kind, S) {
   return Math.round(m / u) * u;
 }
 // 開始・終了（分。終了が前なら翌日）から、全体の分と夜10時〜朝5時の分
-function spanMins_(a, b, brk) {
-  if (b <= a) b += 1440;
+function spanMins_(a, b, brk, exact) {
+  if (!exact && b <= a) b += 1440;
   const total = Math.max(0, b - a - (+brk || 0));
   let night = 0;
   [[22 * 60, 29 * 60], [-2 * 60, 5 * 60]].forEach(w => { night += Math.max(0, Math.min(b, w[1]) - Math.max(a, w[0])); });
@@ -391,9 +396,11 @@ function recMins_(rec, S) {
   const a = roundM_(hm2m_(rec.in.slice(11, 16)), "in", S);
   let b = roundM_(hm2m_(rec.out.slice(11, 16)), "out", S);
   const dd = Math.round((new Date(rec.out.slice(0, 10) + "T00:00:00") - new Date(rec.in.slice(0, 10) + "T00:00:00")) / 86400000);
-  b += Math.max(0, dd) * 1440;
-  if (dd <= 0 && b <= a) b += 1440;
-  return spanMins_(a, b, rec.brk);
+  b += dd * 1440;
+  // 日付が同じで退勤の時刻が前のときだけ次の日とみなす（画面の calcRec と同じ）。
+  // 丸めで出勤・退勤が同じ時刻になったら0時間（1:53→1:54 が24時間と数えられていた）
+  if (dd === 0 && rec.out.slice(11, 16) < rec.in.slice(11, 16)) b += 1440;
+  return spanMins_(a, Math.max(a, b), rec.brk, true);
 }
 function cellMins_(val, S) {
   const base = String(val || "").split("|")[0];
@@ -444,6 +451,183 @@ function savePayroll_(month) {
 function payrollJob() {
   const now = new Date();
   [fmt_(now, "yyyy-MM"), fmt_(new Date(now.getFullYear(), now.getMonth() - 1, 1), "yyyy-MM")].forEach(m => { try { savePayroll_(m); } catch (e) { Logger.log("payroll " + m + " " + e); } });
+}
+
+/* ============================================================
+   勤務時間表（見る用の別スプレッドシート「リノア 勤務時間表」）
+   旧表 K-style（R8）と同じく、縦にスタッフ・横に日付で「何時間働いたか」を並べる。
+   「昨日」シート＝きのう誰が何時から何時まで働いたか。1時間ごとに自動で書き直す（手で直しても上書きされる）
+   ============================================================ */
+const HOURS_WD = ["日", "月", "火", "水", "木", "金", "土"];
+function hoursBook_() {
+  const id = PROP.getProperty("HOURS_SS_ID");
+  if (id) { try { return SpreadsheetApp.openById(id); } catch (e) { Logger.log("hoursBook " + e); } }
+  const ss = SpreadsheetApp.create("リノア 勤務時間表");
+  PROP.setProperty("HOURS_SS_ID", ss.getId());
+  return ss;
+}
+function hoursSheet_(ss, name, index) {
+  const sh = ss.getSheetByName(name) || ss.insertSheet(name, index);
+  sh.clear(); sh.clearNotes(); sh.setFrozenRows(0); sh.setFrozenColumns(0);
+  return sh;
+}
+// "2026-10-28T23:31:00" → "23:31"、日付が次の日なら "翌1:15"
+function hoursClock_(stamp, baseYmd) {
+  if (!stamp) return "";
+  const t = String(stamp).slice(11, 16).replace(/^0/, "");
+  return String(stamp).slice(0, 10) > baseYmd ? "翌" + t : t;
+}
+// スタッフ1人・1日ぶん：{ h:時間, plan:予定か, open:退勤未, rec }
+function hoursDay_(doc, cells, s, ymd, S) {
+  const d = +ymd.slice(8), rec = ((doc && doc.days) || {})[d];
+  if (rec && rec.in && !rec.out) return { open: true, rec };
+  const w = recMins_(rec, S);
+  if (w) return { h: w.total / 60, rec };
+  const p = cellMins_(cells[d + "_" + s.id], S);
+  if (p && p.total) return { h: p.total / 60, plan: true };
+  return null;
+}
+function hoursStaff_(month, tcs) {
+  return readAll_("staff").filter(s => (s.active !== false && s.active !== "FALSE") || tcs.some(t => t.staffId === s.id && Object.keys(t.days || {}).length))
+    .sort((a, b) => (+a.order || 99) - (+b.order || 99));
+}
+function writeHoursMonth_(ss, month) {
+  const S = getSettings_();
+  const y = +month.slice(0, 4), m = +month.slice(5, 7), n = new Date(y, m, 0).getDate();
+  const tcs = readAll_("timecards").filter(r => r.month === month);
+  const shRow = readAll_("shifts").find(r => r.month === month);
+  const cells = shRow && shRow.status === "published" ? (shRow.cells || {}) : {};
+  const pay = computePay_(month), payOf = id => pay.staff.find(r => r.staffId === id) || {};
+  const staff = hoursStaff_(month, tcs);
+  const W = n + 7;   // A列＋日付n列＋右の6列
+  const sh = hoursSheet_(ss, y + "年" + m + "月", 1);
+  const vals = [], colors = [], notes = [];
+  const blank = () => new Array(W).fill("");
+  const r1 = blank(); r1[0] = "リノア 勤務時間表　" + y + "年" + m + "月"; r1[n + 1] = "更新：" + fmt_(new Date(), "M/d H:mm");
+  const r2 = blank(); r2[0] = "黒い数字＝打刻した時間（" + (+S.tcUnit || 30) + "分刻み・休憩を引く）／灰色＝打刻がない日のシフトの予定／「出勤中」＝まだ退勤していない。数字のマスに印（右上の三角）があれば、出勤・退勤の時刻が見られます";
+  const r3 = ["日付"], r4 = ["曜日"];
+  for (let d = 1; d <= n; d++) { r3.push(m + "/" + d); r4.push(HOURS_WD[new Date(y, m - 1, d).getDay()]); }
+  r3.push("打刻の時間", "予定も入れた時間", "出勤日数", "時給", "時給の分", "歩合"); r4.push("", "", "", "", "", "");
+  // 右端に「お給料の見込み」
+  r3[W - 1] = "お給料の見込み"; r4[W - 1] = "";
+  [r1, r2, r3, r4].forEach(r => { vals.push(r); colors.push(new Array(W).fill("#000000")); notes.push(new Array(W).fill("")); });
+  const dayTot = new Array(n + 1).fill(0);
+  staff.forEach(s => {
+    const doc = tcs.find(t => t.staffId === s.id) || { days: {} };
+    const row = [s.name], col = ["#000000"], nt = [""];
+    let real = 0;
+    for (let d = 1; d <= n; d++) {
+      const ymd = month + "-" + ("0" + d).slice(-2), x = hoursDay_(doc, cells, s, ymd, S);
+      if (!x) { row.push(""); col.push("#000000"); nt.push(""); continue; }
+      if (x.open) { row.push("出勤中"); col.push("#c0392b"); nt.push("出勤 " + hoursClock_(x.rec.in, ymd) + "（退勤がまだ）"); continue; }
+      row.push(Math.round(x.h * 100) / 100); col.push(x.plan ? "#a0a0a0" : "#000000");
+      nt.push(x.plan ? "打刻なし（シフトの予定）" : "出勤 " + hoursClock_(x.rec.in, ymd) + " → 退勤 " + hoursClock_(x.rec.out, ymd) + (+x.rec.brk ? "（休憩" + x.rec.brk + "分）" : "") + (x.rec.edited ? "\n経営者が修正" : ""));
+      if (!x.plan) { real += x.h; dayTot[d] += x.h; }
+    }
+    const p = payOf(s.id);
+    row.push(Math.round(real * 100) / 100, p.hours || 0, p.days || 0, +s.wage || 0, p.wagePay || 0, p.commission || 0, p.total || 0);
+    for (let i = 0; i < 7; i++) { col.push("#000000"); nt.push(""); }
+    vals.push(row); colors.push(col); notes.push(nt);
+  });
+  const tot = ["合計"];
+  for (let d = 1; d <= n; d++) tot.push(dayTot[d] ? Math.round(dayTot[d] * 100) / 100 : "");
+  const sumCol = k => staff.reduce((t, s) => t + (+(payOf(s.id)[k]) || 0), 0);
+  tot.push(Math.round(dayTot.reduce((a, b) => a + b, 0) * 100) / 100, pay.hours || 0, "", "", pay.fixed || 0, pay.variable || 0, pay.total || 0);
+  vals.push(tot); colors.push(new Array(W).fill("#000000")); notes.push(new Array(W).fill(""));
+  const rows = vals.length;
+  sh.getRange(1, 1, rows, W).setValues(vals).setFontColors(colors).setNotes(notes).setVerticalAlignment("middle");
+  sh.getRange(1, 1).setFontSize(14).setFontWeight("bold");
+  sh.getRange(2, 1).setFontColor("#666666").setFontSize(9);
+  sh.getRange(3, 1, 2, W).setFontWeight("bold").setBackground("#f3f3f3").setHorizontalAlignment("center");
+  for (let d = 1; d <= n; d++) {
+    const w = new Date(y, m - 1, d).getDay();
+    if (w === 0 || w === 6) sh.getRange(3, d + 1, 2, 1).setFontColor(w === 0 ? "#c0392b" : "#2a6fdb");
+  }
+  if (staff.length) {
+    sh.getRange(5, 2, staff.length + 1, n + 3).setNumberFormat("0.0#").setHorizontalAlignment("center");
+    sh.getRange(5, n + 4, staff.length + 1, 1).setNumberFormat("0").setHorizontalAlignment("center");
+    sh.getRange(5, n + 5, staff.length + 1, 4).setNumberFormat("#,##0").setHorizontalAlignment("right");
+    sh.getRange(5, 1, staff.length, 1).setFontWeight("bold");
+  }
+  sh.getRange(rows, 1, 1, W).setFontWeight("bold").setBackground("#fff7e0");
+  sh.getRange(3, n + 2, rows - 2, 1).setBackground("#eef6ee");
+  sh.getRange(3, W, rows - 2, 1).setBackground("#eef6ee").setFontWeight("bold");
+  sh.getRange(3, 1, rows - 2, W).setBorder(true, true, true, true, true, true, "#cccccc", SpreadsheetApp.BorderStyle.SOLID);
+  sh.setColumnWidth(1, 110); sh.setColumnWidths(2, n, 44); sh.setColumnWidths(n + 2, 6, 92);
+  sh.setRowHeight(2, 20); sh.setFrozenRows(4); sh.setFrozenColumns(1);
+  return sh;
+}
+// 「昨日」：きのうの営業日に、だれが何時から何時まで、何時間働いたか
+function writeHoursYesterday_(ss) {
+  const S = getSettings_();
+  const ymd = addDays_(bizDate_(), -1), month = ymd.slice(0, 7), d = +ymd.slice(8);
+  const p = ymd.split("-").map(Number), wd = HOURS_WD[new Date(p[0], p[1] - 1, p[2]).getDay()];
+  const tcs = readAll_("timecards").filter(r => r.month === month);
+  const shRow = readAll_("shifts").find(r => r.month === month);
+  const cells = shRow && shRow.status === "published" ? (shRow.cells || {}) : {};
+  const staff = hoursStaff_(month, tcs);
+  const sh = hoursSheet_(ss, "昨日", 0);
+  const vals = [["きのう " + p[1] + "月" + p[2] + "日（" + wd + "）の勤務", "", "", "", "", "", "", ""],
+    ["更新：" + fmt_(new Date(), "M/d H:mm") + "　（朝6時までは前の日として数えます）", "", "", "", "", "", "", ""],
+    ["名前", "出勤", "退勤", "休憩（分）", "働いた時間", "時給", "時給の分", "メモ"]];
+  let totH = 0, totPay = 0, any = 0;
+  staff.forEach(s => {
+    const doc = tcs.find(t => t.staffId === s.id) || { days: {} }, x = hoursDay_(doc, cells, s, ymd, S);
+    if (!x) return;
+    any++;
+    if (x.open) { vals.push([s.name, hoursClock_(x.rec.in, ymd), "", "", "", +s.wage || "", "", "退勤の打刻がありません"]); return; }
+    if (x.plan) { vals.push([s.name, "", "", "", "", +s.wage || "", "", "打刻がありません（シフトでは " + Math.round(x.h * 10) / 10 + " 時間の予定）"]); return; }
+    const pay = Math.round((+s.wage || 0) * x.h);
+    totH += x.h; totPay += pay;
+    vals.push([s.name, hoursClock_(x.rec.in, ymd), hoursClock_(x.rec.out, ymd), +x.rec.brk || 0, Math.round(x.h * 100) / 100, +s.wage || "", pay, x.rec.edited ? "経営者が修正" : ""]);
+  });
+  if (!any) vals.push(["この日の勤務はありません", "", "", "", "", "", "", ""]);
+  vals.push(["合計", "", "", "", Math.round(totH * 100) / 100, "", totPay, ""]);
+  // 今月これまで（月の初めのころは先月分も見られるよう、月のシートへ案内）
+  const pay = computePay_(month);
+  vals.push(["", "", "", "", "", "", "", ""]);
+  vals.push([p[1] + "月のこれまで（打刻＋これからの予定）", "", "", "", "", "", "", ""]);
+  vals.push(["名前", "出勤日数", "時間", "", "時給の分", "歩合", "お給料の見込み", ""]);
+  const sumStart = vals.length + 1;
+  pay.staff.forEach(r => vals.push([r.name, r.days, r.hours, "", r.wagePay, r.commission, r.total, ""]));
+  vals.push(["合計", "", pay.hours, "", pay.fixed, pay.variable, pay.total, "日ごとの表は「" + p[0] + "年" + p[1] + "月」シート"]);
+  const rows = vals.length, lastY = 4 + Math.max(any, 1);
+  sh.getRange(1, 1, rows, 8).setValues(vals).setVerticalAlignment("middle");
+  sh.getRange(1, 1).setFontSize(16).setFontWeight("bold");
+  sh.getRange(2, 1).setFontColor("#666666").setFontSize(9);
+  [3, sumStart - 1].forEach(r => sh.getRange(r, 1, 1, 8).setFontWeight("bold").setBackground("#f3f3f3"));
+  sh.getRange(sumStart - 2, 1).setFontSize(13).setFontWeight("bold");
+  [lastY, rows].forEach(r => sh.getRange(r, 1, 1, 8).setFontWeight("bold").setBackground("#fff7e0"));
+  sh.getRange(4, 2, lastY - 3, 2).setHorizontalAlignment("center");
+  sh.getRange(4, 5, lastY - 3, 1).setNumberFormat("0.0#").setFontWeight("bold").setFontSize(12);
+  sh.getRange(4, 6, lastY - 3, 2).setNumberFormat("#,##0");
+  sh.getRange(sumStart, 3, rows - sumStart + 1, 1).setNumberFormat("0.0#");
+  sh.getRange(sumStart, 5, rows - sumStart + 1, 3).setNumberFormat("#,##0");
+  sh.getRange(3, 1, lastY - 2, 8).setBorder(true, true, true, true, true, true, "#cccccc", SpreadsheetApp.BorderStyle.SOLID);
+  sh.getRange(sumStart - 1, 1, rows - sumStart + 2, 7).setBorder(true, true, true, true, true, true, "#cccccc", SpreadsheetApp.BorderStyle.SOLID);
+  sh.setColumnWidth(1, 120); sh.setColumnWidths(2, 6, 90); sh.setColumnWidth(8, 300);
+  sh.setFrozenRows(3);
+  return sh;
+}
+// 1時間ごと：昨日・今月（月の初め5日間は先月も）を書き直す
+function hoursJob() {
+  const ss = hoursBook_();
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) return ss;
+  try {
+    const today = bizDate_(), month = today.slice(0, 7);
+    writeHoursYesterday_(ss);
+    writeHoursMonth_(ss, month);
+    if (+today.slice(8) <= 5) { const p = today.split("-").map(Number); writeHoursMonth_(ss, fmt_(new Date(p[0], p[1] - 2, 1, 12), "yyyy-MM")); }
+    const def = ss.getSheetByName("シート1") || ss.getSheetByName("Sheet1");
+    if (def && ss.getSheets().length > 1) ss.deleteSheet(def);
+    // 月のシートは新しい順に並べる（「昨日」が先頭）
+    ss.getSheets().filter(s => /^\d{4}年\d{1,2}月$/.test(s.getName()))
+      .sort((a, b) => { const k = s => { const q = s.getName().match(/\d+/g); return +q[0] * 100 + +q[1]; }; return k(b) - k(a); })
+      .forEach((s, i) => { ss.setActiveSheet(s); ss.moveActiveSheet(i + 2); });
+    ss.setActiveSheet(ss.getSheetByName("昨日")); ss.moveActiveSheet(1);
+  } finally { lock.releaseLock(); }
+  return ss;
 }
 
 /* ============================================================
@@ -500,15 +684,16 @@ function remindJob() {
 }
 function dz_(hm) { return String(hm || "").replace(/^0/, ""); }
 
-/* トリガー（毎朝9:05 締切・退勤忘れ・お給料の写し／毎日12時 前日のお知らせ）がなければ作る。管理者が開いたときに確認 */
+/* トリガー（毎朝9:05 締切・退勤忘れ・お給料の写し／毎日12時 前日のお知らせ／1時間ごと 勤務時間表）がなければ作る。管理者が開いたときに確認 */
 function ensureTriggers_() {
   try {
     const cache = CacheService.getScriptCache();
-    if (cache.get("triggers_ok")) return;
+    if (cache.get("triggers_ok2")) return;
     const have = ScriptApp.getProjectTriggers().map(t => t.getHandlerFunction());
     if (have.indexOf("dailyJob") < 0) ScriptApp.newTrigger("dailyJob").timeBased().everyDays(1).atHour(9).nearMinute(5).create();
     if (have.indexOf("remindJob") < 0) ScriptApp.newTrigger("remindJob").timeBased().everyDays(1).atHour(12).nearMinute(0).create();
-    cache.put("triggers_ok", "1", 21600);
+    if (have.indexOf("hoursJob") < 0) ScriptApp.newTrigger("hoursJob").timeBased().everyHours(1).create();
+    cache.put("triggers_ok2", "1", 21600);
   } catch (e) { Logger.log("ensureTriggers " + e); }
 }
 
@@ -726,10 +911,11 @@ function setup() {
   Logger.log("setup done. properties: " + JSON.stringify({ LIFF_CHANNEL_ID: !!PROP.getProperty("LIFF_CHANNEL_ID"), MESSAGING_TOKEN: !!PROP.getProperty("MESSAGING_TOKEN"), LIFF_URL: PROP.getProperty("LIFF_URL") }));
 }
 function setupTriggers() {
-  ScriptApp.getProjectTriggers().forEach(t => { if (["dailyJob", "remindJob"].indexOf(t.getHandlerFunction()) >= 0) ScriptApp.deleteTrigger(t); });
+  ScriptApp.getProjectTriggers().forEach(t => { if (["dailyJob", "remindJob", "hoursJob"].indexOf(t.getHandlerFunction()) >= 0) ScriptApp.deleteTrigger(t); });
   ScriptApp.newTrigger("dailyJob").timeBased().everyDays(1).atHour(9).nearMinute(5).create();
   ScriptApp.newTrigger("remindJob").timeBased().everyDays(1).atHour(12).nearMinute(0).create();
-  Logger.log("triggers set (dailyJob 09:05 / remindJob 12:00 JST)");
+  ScriptApp.newTrigger("hoursJob").timeBased().everyHours(1).create();
+  Logger.log("triggers set (dailyJob 09:05 / remindJob 12:00 / hoursJob 毎時 JST)");
 }
 /** 通知のテスト：管理者全員に1通送る */
 function testPush() {

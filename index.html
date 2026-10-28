@@ -215,7 +215,7 @@ const CONFIG = {
 /* ============================================================
    共通
    ============================================================ */
-const SERVER_VERSION="2026-10-28.1";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
+const SERVER_VERSION="2026-10-28.2";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
 const TC_MODES={nearest:"四捨五入（15分未満は切り捨て、15分以上は30分扱い）",floor:"すべて切り捨て",ceil:"すべて切り上げ",favor:"出勤は切り上げ・退勤は切り捨て"};
 const WD = ["日","月","火","水","木","金","土"];
 const pad = n => String(n).padStart(2,"0");
@@ -638,7 +638,8 @@ function vTcAdmin(){
     <div class="tbl"><table class="list"><thead><tr><th>スタッフ</th><th>出勤日数</th><th>実働合計</th><th>注意</th><th></th></tr></thead><tbody>
     ${sums.map(x=>`<tr><td><b>${esc(x.s.name)}</b></td><td>${x.cnt}日</td><td><b>${fmtH(x.mins/60)}</b> h</td><td>${x.req?`<span class="badge edit">修正依頼 ${x.req}</span> `:""}${x.open?`<span class="badge edit">退勤未 ${x.open}</span> `:""}${x.edited?`<span class="badge">修正あり ${x.edited}</span> `:""}${x.manual?`<span class="badge">手入力 ${x.manual}</span>`:""}</td><td><button class="btn ghost sm" data-act="tcStaff" data-id="${esc(x.s.id)}">${state.tcStaff===x.s.id?"閉じる":"明細・修正"}</button></td></tr>`).join("")||'<tr><td colspan="5" class="note">スタッフが登録されていません</td></tr>'}
     <tr><td colspan="2"><b>合計</b></td><td><b>${fmtH(grand/60)}</b> h</td><td colspan="2"></td></tr></tbody></table></div>
-    <div class="row" style="margin-top:10px"><button class="btn ghost" data-act="tcText">給与計算用テキスト</button></div>
+    <div class="row" style="margin-top:10px"><button class="btn ghost" data-act="tcText">給与計算用テキスト</button><button class="btn ghost" data-act="hoursBook" ${state.busy?"disabled":""}>勤務時間表（スプレッドシート）</button></div>
+    ${state.hoursUrl?`<div class="warnbox" style="margin-top:10px">勤務時間表を最新にしました。<br><a href="${esc(state.hoursUrl)}" target="_blank" rel="noopener"><b>勤務時間表を開く</b></a><br><span class="note">パソコンで開くと見やすいです。1時間ごとに自動で新しくなります。</span></div>`:""}
     ${state.lineText?`<pre class="txt" id="lineTxt">${esc(state.lineText)}</pre><div class="row" style="margin-top:8px"><button class="btn sm" data-act="copyLine">コピー</button><button class="btn ghost sm" data-act="closeLine">閉じる</button></div>`:""}
   </section>
   ${sel?vTcDetail(sel,ym):""}`;
@@ -762,6 +763,7 @@ app.addEventListener("click", async e=>{
       await busy(async()=>{ const sh={...Store.shiftOf(state.month)}; sh.cells={}; if(sh.status==="published") sh.status="editing"; await Store.saveShiftNow(sh); toast("クリアしました"); }); break; }
     case "lineText": state.lineText=buildLineText(); go(); break;
     case "tcText": state.lineText=buildTcText(); go(); break;
+    case "hoursBook": await busy(async()=>{ const j=await Store.api("hoursBook",{}); state.hoursUrl=j.url; }); break;
     case "closeLine": state.lineText=null; go(); break;
     case "copyLine": { const txt=state.lineText||""; try{ await navigator.clipboard.writeText(txt); toast("コピーしました。LINEに貼り付けてください"); }catch(err){ const el=$("#lineTxt"); if(el){ const r=document.createRange(); r.selectNodeContents(el); const sel=getSelection(); sel.removeAllRanges(); sel.addRange(r); } toast("長押しでコピーしてください"); } break; }
     case "fixReq": state.fixReqDay = state.fixReqDay===+t.dataset.d?null:+t.dataset.d; go(); $("#fixText")?.focus(); break;
