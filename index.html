@@ -216,7 +216,7 @@ const CONFIG = {
 /* ============================================================
    共通
    ============================================================ */
-const SERVER_VERSION="2026-10-29.1";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
+const SERVER_VERSION="2026-10-31.1";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
 const TC_MODES={nearest:"四捨五入（15分未満は切り捨て、15分以上は30分扱い）",floor:"すべて切り捨て",ceil:"すべて切り上げ",favor:"出勤は切り上げ・退勤は切り捨て"};
 const WD = ["日","月","火","水","木","金","土"];
 const pad = n => String(n).padStart(2,"0");
@@ -275,7 +275,7 @@ function roundPunch(hm,kind){
   else r=Math.round(m/u)*u;
   return hmOf(r);
 }
-const extraTxt = r => [r&&+r.drinks?`ドリンク${r.drinks}杯`:"", r&&+r.douhan?"同伴":""].filter(Boolean).join("・");
+const extraTxt = (r,noDrink) => [r&&+r.drinks&&!noDrink?`ドリンク${r.drinks}杯`:"", r&&+r.douhan?"同伴":""].filter(Boolean).join("・");
 function calcRec(rec){
   if(!rec||!rec.in) return null;
   const inR=roundPunch(rec.in.slice(11,16),"in");
@@ -504,8 +504,8 @@ function vTimecard(m){
   const canPunch = S.phonePunch===true || Store.isAdmin;
   const schedTxt = sched?(sched.kind==="off"?"本日は休みの予定です":`本日の予定：<b>${dropZero(sched.start)}〜${dropZero(sched.end)}</b>${tagLabel(sched.tags)?`（${esc(tagLabel(sched.tags))}）`:""}`):"本日のシフト予定はありません";
   if(!rec) body=`<div class="st">${schedTxt}</div>${canPunch?`<button class="btn big" data-act="punchIn" ${state.busy?"disabled":""}>出　勤</button>`:`<div class="hint" style="font-size:14px">出勤・退勤は<b>店内のiPad</b>で、自分の名前をタップして押してください。</div>`}`;
-  else if(c.open) body=`<div class="st"><b>出勤中</b><br>${dropZero(rec.in.slice(11,16))} に出勤（${dropZero(c.inR)} として計算）</div>${canPunch?`<div class="brkrow">休憩 <input type="number" id="tcBrk" min="0" max="300" step="5" value="${esc(rec.brk||0)}" inputmode="numeric"> 分</div><div class="brkrow">今日のドリンク <input type="number" id="tcDr" min="0" max="99" step="1" value="0" inputmode="numeric"> 杯</div><label class="brkrow" style="cursor:pointer"><input type="checkbox" id="tcDh" ${sched&&sched.tags&&sched.tags.douhan?"checked":""} style="width:22px;height:22px;min-height:0"> 今日は同伴あり</label><button class="btn big out" data-act="punchOut" ${state.busy?"disabled":""}>退　勤</button>`:`<div class="hint" style="font-size:14px">帰るときは<b>店内のiPad</b>で「退勤」を押してください。</div>`}`;
-  else body=`<div class="st"><b>本日はお疲れさまでした</b><br>${dropZero(rec.in.slice(11,16))} 出勤 → ${dropZero(rec.out.slice(11,16))} 退勤${rec.brk?`（休憩 ${rec.brk}分）`:""}<br>計算：${dropZero(c.inR)}〜${dropZero(c.outR)}　実働 <b>${fmtH(c.mins/60)}</b> 時間${extraTxt(rec)?`<br>${esc(extraTxt(rec))}`:""}</div><p class="note">時刻や杯数の修正が必要なときは経営者に伝えてください。</p>`;
+  else if(c.open) body=`<div class="st"><b>出勤中</b><br>${dropZero(rec.in.slice(11,16))} に出勤（${dropZero(c.inR)} として計算）</div>${canPunch?`<div class="brkrow">休憩 <input type="number" id="tcBrk" min="0" max="300" step="5" value="${esc(rec.brk||0)}" inputmode="numeric"> 分</div>${m.drinkOn?`<div class="brkrow">今日のドリンク <input type="number" id="tcDr" min="0" max="99" step="1" value="0" inputmode="numeric"> 杯</div>`:""}<label class="brkrow" style="cursor:pointer"><input type="checkbox" id="tcDh" ${sched&&sched.tags&&sched.tags.douhan?"checked":""} style="width:22px;height:22px;min-height:0"> 今日は同伴あり</label><button class="btn big out" data-act="punchOut" ${state.busy?"disabled":""}>退　勤</button>`:`<div class="hint" style="font-size:14px">帰るときは<b>店内のiPad</b>で「退勤」を押してください。</div>`}`;
+  else body=`<div class="st"><b>本日はお疲れさまでした</b><br>${dropZero(rec.in.slice(11,16))} 出勤 → ${dropZero(rec.out.slice(11,16))} 退勤${rec.brk?`（休憩 ${rec.brk}分）`:""}<br>計算：${dropZero(c.inR)}〜${dropZero(c.outR)}　実働 <b>${fmtH(c.mins/60)}</b> 時間${extraTxt(rec,!m.drinkOn)?`<br>${esc(extraTxt(rec,!m.drinkOn))}`:""}</div><p class="note">時刻${m.drinkOn?"や杯数":""}の修正が必要なときは経営者に伝えてください。</p>`;
   return `<section class="card">
     <div class="punch"><div class="date">${bz.getMonth()+1}月${d}日（${WD[bz.getDay()]}${isHol(bz.getFullYear(),bz.getMonth()+1,d)?"・祝":""}）の営業${now.getDate()!==d?`<span class="note" style="display:block">夜中の0時〜朝6時は前の日の勤務として記録します</span>`:""}</div><div class="clock" id="clock">${pad(now.getHours())}:${pad(now.getMinutes())}</div>${body}
     <div class="sum" style="width:100%;max-width:340px;grid-template-columns:1fr 1fr;margin-top:4px"><div><b>${fmtH(mTot/60)}<small style="font-size:12px;font-weight:400">h</small></b><span>今月の累計労働時間</span></div><div><b>${mCnt}<small style="font-size:12px;font-weight:400">日</small></b><span>今月の出勤日数</span></div></div></div>
@@ -523,12 +523,12 @@ function vPinCard(m){
 }
 function vTcHistory(m){
   const ym=state.tcMonth, {y,m:mo}=parseYM(ym), doc=Store.tcOf(ym)[m.id]||{days:{}}, days=Object.keys(doc.days||{}).map(Number).sort((a,b)=>a-b);
-  const edits=doc.edits||[];
+  const edits=(doc.edits||[]).filter(e=>m.drinkOn||!/ドリンク/.test(e.what||""));   // 設定のない人には杯数の修正も見せない
   let total=0, cnt=0; const rows=days.map(d=>{ const r=doc.days[d], c=calcRec(r); if(!c) return ""; if(!c.open){ total+=c.mins; cnt++; } const w=dow(y,mo,d); const ed=edits.filter(e=>String(e.day)===String(d));
     const flags=`${r.edited||ed.length?'<span class="badge edit">修正あり</span>':""}${r.req?'<span class="badge">修正依頼中</span>':""}`;
     const hist= ed.length?`<div class="raw" style="margin-top:3px">${ed.map(e=>`${esc(String(e.at).slice(5,16).replace("T"," "))} ${esc(e.by)}：${esc(e.what)}`).join("<br>")}</div>`:"";
     const reqUI= state.fixReqDay===d?`<form class="f" id="fixreq" data-d="${d}" style="grid-column:1/4;gap:6px;margin-top:4px"><textarea id="fixText" maxlength="200" placeholder="例：退勤を押し忘れました。実際は18:05に帰りました" style="min-height:56px"></textarea><div class="row"><button class="btn sm" ${state.busy?"disabled":""}>経営者に送る</button><button type="button" class="btn ghost sm" data-act="fixReq" data-d="${d}">やめる</button></div></form>`:"";
-    return `<div class="r ${c.open?"open":""} ${r.manual?"manual":""}" style="grid-template-columns:64px 1fr auto;row-gap:2px"><span class="dd ${w===6?"sat":""} ${w===0?"sun":""}">${d}日(${WD[w]})</span><span>${c.open?`${dropZero(c.inR)}〜 退勤未`:`${dropZero(c.inR)}〜${dropZero(c.outR)}${r.brk?` 休${r.brk}`:""}`}${extraTxt(r)?` <span class="badge">${esc(extraTxt(r))}</span>`:""} ${flags}<br><span class="raw">打刻 ${dropZero(r.in.slice(11,16))}${r.out?`〜${dropZero(r.out.slice(11,16))}`:""}</span>${hist}${r.req?`<div class="raw">依頼中：「${esc(r.req.text)}」</div>`:""}</span><span style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><span class="hh">${c.open?"—":fmtH(c.mins/60)+"h"}</span>${state.proxyId?"":`<button class="btn ghost sm" data-act="fixReq" data-d="${d}" style="min-height:26px;padding:2px 8px;font-size:11px">修正を依頼</button>`}</span>${reqUI}</div>`; }).join("");
+    return `<div class="r ${c.open?"open":""} ${r.manual?"manual":""}" style="grid-template-columns:64px 1fr auto;row-gap:2px"><span class="dd ${w===6?"sat":""} ${w===0?"sun":""}">${d}日(${WD[w]})</span><span>${c.open?`${dropZero(c.inR)}〜 退勤未`:`${dropZero(c.inR)}〜${dropZero(c.outR)}${r.brk?` 休${r.brk}`:""}`}${extraTxt(r,!m.drinkOn)?` <span class="badge">${esc(extraTxt(r,!m.drinkOn))}</span>`:""} ${flags}<br><span class="raw">打刻 ${dropZero(r.in.slice(11,16))}${r.out?`〜${dropZero(r.out.slice(11,16))}`:""}</span>${hist}${r.req?`<div class="raw">依頼中：「${esc(r.req.text)}」</div>`:""}</span><span style="display:flex;flex-direction:column;align-items:flex-end;gap:4px"><span class="hh">${c.open?"—":fmtH(c.mins/60)+"h"}</span>${state.proxyId?"":`<button class="btn ghost sm" data-act="fixReq" data-d="${d}" style="min-height:26px;padding:2px 8px;font-size:11px">修正を依頼</button>`}</span>${reqUI}</div>`; }).join("");
   return `<section class="card">
     ${vMonthNav("tcm",ym,"の勤務")}
     <div class="sum" style="margin:10px 0"><div><b>${cnt}</b><span>出勤日数</span></div><div><b>${fmtH(total/60)}</b><span>実働合計（h）</span></div><div><b>${+Store.settings.tcUnit||30}</b><span>分刻みで計算</span></div></div>
@@ -652,7 +652,7 @@ function vTcDetail(s,ym){
     return `<div class="tce"><span class="dd" style="color:${w===0?"var(--sun)":w===6?"var(--sat)":"inherit"}">${d}日</span><input type="time" id="ti${d}" value="${esc(r.in?r.in.slice(11,16):"")}" aria-label="出勤"><input type="time" id="to${d}" value="${esc(r.out?r.out.slice(11,16):"")}" aria-label="退勤"><input type="number" id="tb${d}" value="${esc(r.brk||0)}" min="0" step="5" aria-label="休憩分"><button class="x" data-act="tcDel" data-d="${d}" aria-label="削除">×</button><span></span><span class="tcx" style="grid-column:2/4">ドリンク <input type="number" id="td${d}" value="${esc(r.drinks||0)}" min="0" max="99" step="1" inputmode="numeric" aria-label="ドリンク杯数"> 杯</span><label class="tcx" style="grid-column:4/6"><input type="checkbox" id="th${d}" ${+r.douhan?"checked":""}> 同伴</label><span></span><span class="note" style="grid-column:2/5">計算 ${c.inR?dropZero(c.inR):"—"}〜${c.outR?dropZero(c.outR):"—"}　実働 ${c.open||!c.inR?"—":fmtH(c.mins/60)+"h"}${r.manual?"　<span style='color:var(--warn)'>手入力</span>":""}${r.edited?"　<span class='badge edit'>修正あり</span>":""}${r.req?`<br><b style="color:var(--warn)">修正依頼（${esc(String(r.req.at||"").slice(5).replace("T"," "))}）：</b>「${esc(r.req.text)}」`:""}</span></div>`; }).join("");
   const edits=(doc.edits||[]).slice().reverse();
   return `<section class="card" id="tcdetail"><h2>${esc(s.name)}<small>${monthLabel(ym)}の明細</small></h2>
-    <p class="note">時刻・ドリンクの杯数・同伴を直して「保存」。退勤が出勤より早い時刻なら翌日扱いです。ドリンクと同伴は退勤のときに本人が入れます。</p>
+    <p class="note">時刻・ドリンクの杯数・同伴を直して「保存」。退勤が出勤より早い時刻なら翌日扱いです。同伴は退勤のときに本人が入れます。ドリンクは「スタッフ」で設定した人だけ本人が入れます。</p>
     <div class="tce" style="color:var(--muted);font-size:11px"><span></span><span>出勤</span><span>退勤</span><span>休憩(分)</span><span></span></div>
     <div class="f" style="gap:8px;margin-top:6px">${rows||'<div class="note">打刻がありません。下の欄から追加できます。</div>'}</div>
     <div class="tce" style="margin-top:12px;border-top:1px solid var(--line2);padding-top:10px"><input type="number" id="tcNewDay" min="1" max="${daysIn(y,m)}" placeholder="日" aria-label="日"><input type="time" id="tcNewIn" aria-label="出勤"><input type="time" id="tcNewOut" aria-label="退勤"><input type="number" id="tcNewBrk" value="0" min="0" step="5" aria-label="休憩分"><button class="btn ghost sm" data-act="tcAdd" style="min-height:38px;padding:0 10px">追加</button></div>
@@ -672,12 +672,13 @@ function vWishList(){
 function vStaffAdmin(){
   const list=[...Store.staff].sort((a,b)=>(a.order??99)-(b.order??99)), e=state.editStaff;
   return `<section class="card"><h2>スタッフ<small>${list.length}名</small></h2>
-  <div class="people" style="margin-top:8px">${list.map(s=>`<div class="stf ${s.active===false?"inactive":""}"><div><div class="nm">${esc(s.name)} <span class="pill">${esc(shortName(s))}</span> <span class="note">${s.emp?esc(s.emp):""}</span></div><div class="mt">表示順 ${s.order??"-"}　${s.wage?`時給 ${yen(s.wage)}　`:'<span style="color:var(--warn)">時給 未入力</span>　'}${s.rate?`歩合 ${pct(s.rate)}%　`:""}${s.linked||s.userId?"LINE連携済み（通知が届きます）":"LINE未連携（本人がLINEから開いて登録すると連携されます）"}${s.active===false?"　／ <b>非表示（管理のみ）</b>":""}</div></div><div class="row"><button class="btn ghost sm" data-act="editStaff" data-id="${esc(s.id)}">編集</button><button class="btn ghost sm" data-act="viewAs" data-id="${esc(s.id)}">代理入力</button></div></div>`).join("")||'<div class="note">まだ登録がありません。</div>'}</div>
+  <div class="people" style="margin-top:8px">${list.map(s=>`<div class="stf ${s.active===false?"inactive":""}"><div><div class="nm">${esc(s.name)} <span class="pill">${esc(shortName(s))}</span> <span class="note">${s.emp?esc(s.emp):""}</span></div><div class="mt">表示順 ${s.order??"-"}　${s.wage?`時給 ${yen(s.wage)}　`:'<span style="color:var(--warn)">時給 未入力</span>　'}${s.rate?`歩合 ${pct(s.rate)}%　`:""}${s.drinkOn?"ドリンクバックあり　":""}${s.linked||s.userId?"LINE連携済み（通知が届きます）":"LINE未連携（本人がLINEから開いて登録すると連携されます）"}${s.active===false?"　／ <b>非表示（管理のみ）</b>":""}</div></div><div class="row"><button class="btn ghost sm" data-act="editStaff" data-id="${esc(s.id)}">編集</button><button class="btn ghost sm" data-act="viewAs" data-id="${esc(s.id)}">代理入力</button></div></div>`).join("")||'<div class="note">まだ登録がありません。</div>'}</div>
   <h3 style="margin:16px 0 8px;font-size:14px">${e?.id?"スタッフを編集":"スタッフを追加（経営者側で登録）"}</h3>
   <form class="f" id="stf"><input type="hidden" name="id" value="${esc(e?.id||"")}">
     <div class="kv"><label>名前<input type="text" name="name" id="sName" required maxlength="20" value="${esc(e?.name||"")}"></label><label>カレンダー表示名<span class="h">（2〜3文字）</span><input type="text" name="short" id="sShort" maxlength="4" value="${esc(e?.short||"")}" placeholder="例：田中"></label></div>
     <div class="kv"><label>区分<select name="emp" id="sEmp">${["","社員","パート","アルバイト","業務委託"].map(v=>`<option ${e?.emp===v?"selected":""}>${v}</option>`).join("")}</select></label><label>表示順<input type="number" name="order" id="sOrder" min="1" max="99" value="${esc(e?.order??(list.length+1))}"></label></div>
     <div class="kv"><label>時給（円）<span class="h">（経営者だけが見られます）</span><input type="number" name="wage" id="sWage" inputmode="numeric" min="0" max="100000" value="${esc(e?.wage||"")}" placeholder="例：1200"></label><label>ボトルの歩合（%）<span class="h">（シャンパン・ワインの売価の何%。なしは空欄）</span><input type="number" name="rate" id="sRate" inputmode="decimal" min="0" max="100" step="0.5" value="${e?.rate?esc(pct(e.rate)):""}" placeholder="例：10"></label></div>
+    <label class="inline"><input type="checkbox" name="drinkOn" id="sDrinkOn" ${e?.drinkOn?"checked":""}>この人にドリンクバックを見せる<span class="h">（退勤のとき杯数を入れる欄が出ます。オフの人には見えません）</span></label>
     <label class="inline"><input type="checkbox" name="active" id="sActive" ${e?.active===false?"":"checked"}>シフト表・iPadの打刻一覧に表示する<span class="h">（管理だけで出勤しない人はオフ）</span></label>
     <label>メモ<span class="h">（経営者のみ閲覧）</span><input type="text" name="note" id="sNote" maxlength="100" value="${esc(e?.note||"")}"></label>
     ${e?.id?`<label>iPad暗証番号<span class="h">（${e.hasPin?"設定済み":"未設定"}。本人が設定できないときだけ、ここで4〜6桁を入れて保存）</span><input type="text" name="newpin" id="sPin" inputmode="numeric" maxlength="6" placeholder="空欄なら変更しない"></label>`:""}
@@ -811,7 +812,7 @@ app.addEventListener("submit", async e=>{
   if(fid==="pinf"){ await busy(async()=>{ await Store.adminLogin(String(fd.get("pin")||"")); state.role="admin"; toast("管理者として登録しました"); }); }
   if(fid==="stf"){
     const id=fd.get("id")||("s_"+Date.now().toString(36)); const prev=Store.staff.find(s=>s.id===id)||{};
-    const s={id,name:(fd.get("name")||"").trim(),short:(fd.get("short")||"").trim(),emp:fd.get("emp")||"",order:+fd.get("order")||99,active:!!fd.get("active"),note:fd.get("note")||"",wage:Math.round(+fd.get("wage")||0),rate:(+fd.get("rate")||0)/100};
+    const s={id,name:(fd.get("name")||"").trim(),short:(fd.get("short")||"").trim(),emp:fd.get("emp")||"",order:+fd.get("order")||99,active:!!fd.get("active"),note:fd.get("note")||"",wage:Math.round(+fd.get("wage")||0),rate:(+fd.get("rate")||0)/100,drinkOn:!!fd.get("drinkOn")};
     const newpin=String(fd.get("newpin")||"").trim();
     if(!s.name) return; await busy(async()=>{ await Store.upsertStaff(s); if(newpin){ if(!/^\d{4,6}$/.test(newpin)) throw new Error("bad_pin_format"); await Store.resetPin(s.id,newpin); } state.editStaff=null; toast(prev.id?"保存しました":"追加しました"); });
   }
