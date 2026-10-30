@@ -161,21 +161,21 @@ let idleT;
 function openModal(id){ const x=(S.data.today.status[id]||{}); S.modal={id,drinks:0,douhan:/\|[^|]*d/.test(String(x.sched||""))}; S.pin=""; render(); clearTimeout(idleT); idleT=setTimeout(()=>{ S.modal=null; render(); },45000); }
 function renderModal(){
   const D=S.data, s=D.staff.find(x=>x.id===S.modal.id); if(!s) return "";
-  const x=D.today.status[s.id]||{}; const needPin=D.settings.kioskPin; const step=S.modal.step==="drinks"; const mode= x.out?"done": x.in?"out":"in";
+  const x=D.today.status[s.id]||{}; const needPin=D.settings.kioskPin; const mode= x.out?"done": x.in?"out":"in";
   const pinUI = needPin?`<div class="pinbox">${[0,1,2,3,4,5].map(i=>`<i class="${i<S.pin.length?"on":""}"></i>`).join("")}</div>
     <div class="pad">${[1,2,3,4,5,6,7,8,9].map(n=>`<button type="button" data-k="${n}">${n}</button>`).join("")}<button type="button" class="fn" data-k="C">クリア</button><button type="button" data-k="0">0</button><button type="button" class="fn" data-k="B">←</button></div>`:"";
   const minsAgo=hm=>{ if(!hm) return 1e9; const [h,mi]=hm.split(":").map(Number); const n=new Date(); let x=(n.getHours()*60+n.getMinutes())-(h*60+mi); if(x<0) x+=1440; return x; };   // 夜中0時をまたいでも数える
   const undo = (mode==="out"&&minsAgo(x.in)<=15)?`<button class="btn ghost" id="undo" data-type="undoIn" style="width:100%">出勤を取り消す（押し間違い・${minsAgo(x.in)}分前）</button>`
              : (mode==="done"&&minsAgo(x.out)<=15)?`<button class="btn ghost" id="undo" data-type="undoOut" style="width:100%">退勤を取り消す（押し間違い・${minsAgo(x.out)}分前）</button>`:"";
-  const action = step?`<div class="ext"><div class="lb">今日のドリンク（いただいた杯数）</div><div class="cnt"><button type="button" id="drM" aria-label="1杯へらす">−</button><b id="drN">${S.modal.drinks}</b><button type="button" id="drP" aria-label="1杯ふやす">＋</button></div></div><button class="btn big out" id="go" ${S.busy?"disabled":""}>退　勤</button>`
-    : mode==="done"?`<div class="note" style="text-align:center">本日は退勤済みです（${dropZero(x.in)}〜${dropZero(x.out)}）。${undo?"押し間違いなら暗証番号を入れて取り消せます。":"修正は経営者に伝えてください。"}</div>${undo}`
-    : mode==="out"?`<div class="ext"><button type="button" class="dh ${S.modal.douhan?"on":""}" id="dhT">${S.modal.douhan?"✓ 今日は同伴あり":"同伴なし（あればタップ）"}</button></div>
-      <div class="brk">休憩 <input type="number" id="brk" value="${S.modal.brk||0}" min="0" max="300" step="5" inputmode="numeric"> 分</div><button class="btn big out" id="go" ${S.busy?"disabled":""}>退　勤</button>${undo}`
+  const action = mode==="done"?`<div class="note" style="text-align:center">本日は退勤済みです（${dropZero(x.in)}〜${dropZero(x.out)}）。${undo?"押し間違いなら暗証番号を入れて取り消せます。":"修正は経営者に伝えてください。"}</div>${undo}`
+    : mode==="out"?`<div class="ext"><div class="lb">今日のドリンク（いただいた杯数）</div><div class="cnt"><button type="button" id="drM" aria-label="1杯へらす">−</button><b id="drN">${S.modal.drinks}</b><button type="button" id="drP" aria-label="1杯ふやす">＋</button></div>
+      <button type="button" class="dh ${S.modal.douhan?"on":""}" id="dhT">${S.modal.douhan?"✓ 今日は同伴あり":"同伴なし（あればタップ）"}</button></div>
+      <div class="brk">休憩 <input type="number" id="brk" value="0" min="0" max="300" step="5" inputmode="numeric"> 分</div><button class="btn big out" id="go" ${S.busy?"disabled":""}>退　勤</button>${undo}`
     : `<button class="btn big" id="go" ${S.busy?"disabled":""}>出　勤</button>`;
   return `<div class="ov" id="ov"><div class="md">
     <div class="who"><b>${esc(s.name)} さん</b><span>${x.in?`出勤 ${dropZero(x.in)}`:"未出勤"}${x.sched?"　"+esc(schedText(x.sched)):""}</span></div>
-    ${!step&&mode!=="done"&&needPin?`<div class="note" style="text-align:center">${s.hasPin?"暗証番号を入力してください":"暗証番号が未設定です。自分のLINEのアプリ「タイムカード」で設定してから押してください"}</div>`:""}
-    ${step?"":(mode!=="done"||undo)?pinUI:""}
+    ${mode!=="done"&&needPin?`<div class="note" style="text-align:center">${s.hasPin?"暗証番号を入力してください":"暗証番号が未設定です。自分のLINEのアプリ「タイムカード」で設定してから押してください"}</div>`:""}
+    ${(mode!=="done"||undo)?pinUI:""}
     ${action}
     <div class="row"><button class="btn ghost" id="cancel" style="flex:1">閉じる</button></div>
   </div></div>`;
@@ -188,29 +188,22 @@ function bindModal(){
     const D=S.data, s=D.staff.find(x=>x.id===S.modal.id);
     if(D.settings.kioskPin && S.pin.length<4){ toast("暗証番号を入力してください","ng"); return; }
     S.busy=true; btn.disabled=true;
-    const drinkStep=S.modal.step==="drinks", ex=type==="out"?{drinks:S.modal.drinks,douhan:S.modal.douhan}:{};
-    try{ const r=await api("kioskPunch",{staffId:s.id,type,pin:S.pin,brk:drinkStep?+S.modal.brk||0:+($("#brk")?.value||0),...ex}); S.data.today=r.today;
+    const ex=type==="out"?{drinks:S.modal.drinks,douhan:S.modal.douhan}:{};
+    try{ const r=await api("kioskPunch",{staffId:s.id,type,pin:S.pin,brk:+($("#brk")?.value||0),...ex}); S.data.today=r.today;
       const day=String(new Date(Date.now()-6*3600e3).getDate()), rec=(r.timecard&&r.timecard.days||{})[day]; const st=S.data.today.status[s.id]||{};
       if(rec) S.data.today.status[s.id]={...st,in:rec.in?rec.in.slice(11,16):"",out:rec.out?rec.out.slice(11,16):"",brk:+rec.brk||0};
       else if(type==="undoIn") S.data.today.status[s.id]={...st,in:"",out:"",brk:0};
       setTimeout(load,3000); S.modal=null; S.pin="";
-      toast(type==="undoIn"?`${s.name} さん　出勤を取り消しました`:type==="undoOut"?`${s.name} さん　退勤を取り消しました`:`${s.name} さん　${type==="in"?"出勤":"退勤"}しました`,"ok",type.startsWith("undo")?"修正として記録しました":`${dropZero(r.serverTime.slice(11))}　${type==="in"?"いってらっしゃい":"お疲れさまでした"}${type==="out"?[drinkStep?`ドリンク${ex.drinks}杯`:"",ex.douhan?"同伴":""].filter(Boolean).map((t,i,a)=>(i?"":"（")+t+(i===a.length-1?"）":"・")).join(""):""}`); }
+      toast(type==="undoIn"?`${s.name} さん　出勤を取り消しました`:type==="undoOut"?`${s.name} さん　退勤を取り消しました`:`${s.name} さん　${type==="in"?"出勤":"退勤"}しました`,"ok",type.startsWith("undo")?"修正として記録しました":`${dropZero(r.serverTime.slice(11))}　${type==="in"?"いってらっしゃい":"お疲れさまでした"}${type==="out"?`（ドリンク${ex.drinks}杯${ex.douhan?"・同伴":""}）`:""}`); }
     catch(e){ toast(errMsg(e),"ng"); S.pin=""; }
     S.busy=false; render();
   };
   const un=$("#undo"); if(un) un.onclick=()=>doPunch(un.dataset.type,un);
   const bump=n=>{ S.modal.drinks=Math.max(0,Math.min(99,S.modal.drinks+n)); $("#drN").textContent=S.modal.drinks; clearTimeout(idleT); idleT=setTimeout(()=>{S.modal=null;render();},45000); };
-  if($("#drM")){ $("#drM").onclick=()=>bump(-1); $("#drP").onclick=()=>bump(1); }
-  if($("#dhT")){ $("#dhT").onclick=()=>{ S.modal.douhan=!S.modal.douhan; const b=$("#dhT"); b.classList.toggle("on",S.modal.douhan); b.textContent=S.modal.douhan?"✓ 今日は同伴あり":"同伴なし（あればタップ）"; }; }
+  if($("#drM")){ $("#drM").onclick=()=>bump(-1); $("#drP").onclick=()=>bump(1);
+    $("#dhT").onclick=()=>{ S.modal.douhan=!S.modal.douhan; const b=$("#dhT"); b.classList.toggle("on",S.modal.douhan); b.textContent=S.modal.douhan?"✓ 今日は同伴あり":"同伴なし（あればタップ）"; }; }
   const go=$("#go"); if(go) go.onclick=async()=>{
     const D=S.data, s=D.staff.find(x=>x.id===S.modal.id), x=D.today.status[s.id]||{}, type=x.in?"out":"in";
-    if(type==="out"&&S.modal.step!=="drinks"){   // 暗証番号を確かめてから、設定された人にだけ杯数を聞く
-      if(D.settings.kioskPin && S.pin.length<4){ toast("暗証番号を入力してください","ng"); return; }
-      S.busy=true; go.disabled=true; const brk=+($("#brk")?.value||0);
-      try{ const c=await api("kioskCheck",{staffId:s.id,pin:S.pin}); S.modal.brk=brk; S.busy=false;
-        if(c.drinkOn){ S.modal.step="drinks"; clearTimeout(idleT); idleT=setTimeout(()=>{S.modal=null;render();},45000); render(); return; } }
-      catch(e){ S.busy=false; toast(errMsg(e),"ng"); S.pin=""; render(); return; }
-    }
     await doPunch(type,go);
   };
 }

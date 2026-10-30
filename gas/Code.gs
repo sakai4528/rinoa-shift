@@ -14,7 +14,7 @@
  *   4. デプロイ → 新しいデプロイ → ウェブアプリ（実行ユーザー: 自分 / アクセス: 全員）
  */
 
-const VERSION = "2026-10-31.1";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
+const VERSION = "2026-10-29.1";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
 const TZ = "Asia/Tokyo";
 const PROP = PropertiesService.getScriptProperties();
 
@@ -40,7 +40,7 @@ const DAY_START_HOUR = 6;   // 朝6時までは前の日の営業として扱う
 
 const SHEETS = {
   settings:  ["key", "value"],
-  staff:     ["id", "name", "short", "emp", "order", "active", "userId", "note", "createdAt", "pin", "wage", "rate", "drinkOn"],
+  staff:     ["id", "name", "short", "emp", "order", "active", "userId", "note", "createdAt", "pin", "wage", "rate"],
   shifts:    ["month", "status", "publishedAt", "cells"],
   wishes:    ["month", "staffId", "days", "memo", "updatedAt"],
   timecards: ["month", "staffId", "days"],
@@ -234,7 +234,6 @@ function handle_(action, data, auth) {
       });
       if (s.wage !== undefined) { const w = Math.round(+s.wage || 0); if (w < 0 || w > 100000) throw new Error("bad_wage"); row.wage = w; }
       if (s.rate !== undefined) { const r = +s.rate || 0; if (r < 0 || r > 1) throw new Error("bad_rate"); row.rate = r; }
-      if (s.drinkOn !== undefined) row.drinkOn = !!s.drinkOn;
       upsert_("staff", ["id"], row);
       log_(auth, "upsertStaff", row.name);
       return { staff: readAll_("staff").map(x => publicStaff_(x, true)) };
@@ -801,14 +800,12 @@ function handleDevice_(action, data, device) {
         today: st
       };
     }
-    case "kioskCheck":   // 退勤の前に本人か確かめて、ドリンクの杯数を聞く人かを返す（iPadの一覧には載せない）
     case "kioskPunch": {
       const s = staff.find(x => x.id === data.staffId); if (!s) throw new Error("bad_staff");
       if (settings.kioskPin !== false) {
         if (!s.pin) throw new Error("pin_not_set");
         if (pinHash_(s.id, String(data.pin || "")) !== s.pin) throw new Error("bad_pin");
       }
-      if (action === "kioskCheck") return { drinkOn: isTrue_(s.drinkOn) };
       if (!["in", "out", "undoIn", "undoOut"].includes(data.type)) throw new Error("bad_type");
       const r = punch_(s, data, "kiosk:" + device.id);
       log_({ userId: "device:" + device.id }, "kioskPunch:" + data.type, s.name);
@@ -840,7 +837,7 @@ function punch_(staffRow, data, via) {
     const r = doc.days[day];
     if (!r || !r.in) throw new Error("not_in");
     r.out = stamp; r.brk = Math.max(0, +data.brk || 0); r.viaOut = via;
-    setExtras_(r, isTrue_(staffRow.drinkOn) ? data : { douhan: data.douhan });   // ドリンクは経営者が設定した人だけ
+    setExtras_(r, data);
   } else if (data.type === "fixOut") {
     const r = doc.days[day];
     if (!r || !r.in) throw new Error("not_in");
@@ -901,7 +898,7 @@ function publicSettings_(s) { const o = Object.assign({}, s); delete o.pin; retu
 function publicStaff_(s, full) {
   const o = { id: s.id, name: s.name, short: s.short || "", emp: s.emp || "", order: +s.order || 99, active: s.active !== false && s.active !== "FALSE", linked: !!s.userId, hasPin: !!s.pin };
   o.hasRate = (+s.rate || 0) > 0;
-  if (full) { o.note = s.note || ""; o.userId = s.userId || ""; o.wage = +s.wage || 0; o.rate = +s.rate || 0; o.drinkOn = isTrue_(s.drinkOn); }   // drinkOn＝ドリンクバックを見せる人（経営者が設定）
+  if (full) { o.note = s.note || ""; o.userId = s.userId || ""; o.wage = +s.wage || 0; o.rate = +s.rate || 0; }
   return o;
 }
 function sanitizeSettings_(s) {
