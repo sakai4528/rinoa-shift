@@ -108,7 +108,7 @@ const app = $("#app");
 const esc = s => String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 let toastT; function toast(msg,cls,sub){ const t=$("#toast"); t.className="toast on "+(cls||""); t.innerHTML=esc(msg)+(sub?`<small>${esc(sub)}</small>`:""); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove("on"),3200); }
 
-const S = { key:null, data:null, error:null, modal:null, pin:"", busy:false, lastFetch:0 };
+const S = { key:null, data:null, error:null, modal:null, pin:"", busy:false, lastFetch:0, unlinkUI:false };
 try{ S.key=localStorage.getItem(KEY_LS)||null; }catch(e){}
 
 async function api(action,data,key){
@@ -150,11 +150,17 @@ function render(){
     <div class="clock"><div class="t" id="clk">${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}</div><div class="d">${now.getFullYear()}年${now.getMonth()+1}月${now.getDate()}日（${WD[now.getDay()]}）</div></div></header>
     <div class="grid">${cards||'<div class="note">スタッフが登録されていません。各自のLINEから名前を登録してもらってください。</div>'}</div>
     <div class="legend"><span><i style="background:var(--ok)"></i>出勤中</span><span><i style="background:var(--accent-soft)"></i>退勤済み</span><span><i style="background:var(--warn-soft)"></i>暗証番号が未設定（本人のLINEで設定）</span></div>
-    <footer class="foot"><span>端末：${esc(D.device.name)}　／　${D.settings.tcUnit}分刻みで計算</span><span><a href="#" id="refresh">再読み込み</a>　|　<a href="#" id="unlink">この端末の登録を解除</a></span></footer>
+    <footer class="foot"><span>端末：${esc(D.device.name)}　／　${D.settings.tcUnit}分刻みで計算</span><span><a href="#" id="refresh">再読み込み</a>　|　<a href="#" id="unlink" style="opacity:.6">登録解除（経営者用）</a></span></footer>
     ${S.modal?renderModal():""}`;
   document.querySelectorAll(".st").forEach(b=>b.onclick=()=>openModal(b.dataset.id));
   $("#refresh").onclick=e=>{e.preventDefault(); load();};
-  $("#unlink").onclick=e=>{ e.preventDefault(); if(e.target.dataset.sure!=="1"){ e.target.dataset.sure="1"; e.target.textContent="本当に解除する（もう一度タップ）"; return; } S.key=null; try{localStorage.removeItem(KEY_LS);}catch(x){} S.data=null; render(); };
+  $("#unlink").onclick=e=>{ e.preventDefault(); S.unlinkUI=true; S.modal=null; render(); };
+  if(S.unlinkUI){ const ov=document.createElement("div"); ov.className="ov"; ov.id="ulov"; ov.innerHTML=`<div class="md"><div class="who"><b>端末の登録を解除</b><span>経営者向け</span></div><p class="note">解除すると打刻できなくなります。解除するには、この端末に登録した<b>端末コード</b>をもう一度入力してください（コードは経営者の管理画面にあります）。</p><form id="ulf" style="display:flex;flex-direction:column;gap:10px"><input id="ulkey" class="setupkey" placeholder="RINOA-XXXX-XXXX" autocomplete="off" autocapitalize="characters" spellcheck="false" style="width:100%;border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:22px;letter-spacing:.1em;text-transform:uppercase;background:var(--bg);min-height:56px;text-align:center;font-family:ui-monospace,Menlo,monospace"><div class="err" id="ulerr"></div><div class="row"><button type="button" class="btn ghost" id="ulcancel" style="flex:1">やめる</button><button class="btn" style="flex:1;background:var(--ng);border-color:var(--ng)">解除する</button></div></form></div>`;
+    document.body.appendChild(ov);
+    $("#ulcancel").onclick=()=>{ S.unlinkUI=false; ov.remove(); };
+    ov.onclick=ev=>{ if(ev.target===ov){ S.unlinkUI=false; ov.remove(); } };
+    $("#ulf").onsubmit=ev=>{ ev.preventDefault(); const v=$("#ulkey").value.trim().toUpperCase(); if(v!==String(S.key).toUpperCase()){ $("#ulerr").textContent="端末コードが違います。解除できません。"; $("#ulkey").value=""; return; } S.unlinkUI=false; ov.remove(); S.key=null; try{localStorage.removeItem(KEY_LS);}catch(x){} S.data=null; render(); };
+  }
   if(S.modal) bindModal();
 }
 let idleT;
