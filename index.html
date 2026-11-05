@@ -451,13 +451,13 @@ function vMyShift(m){
     <div class="sum" style="grid-template-columns:repeat(${m.drinkOn?2:1},1fr)"><div><b>${dhDays}</b><span>同伴した日数（今月の記録）</span></div>${m.drinkOn?`<div><b>${drinks}</b><span>ドリンク（杯・今月の記録）</span></div>`:""}</div>`
     :`<div class="empty"><b>${monthLabel(ym)}のシフトはまだ公開されていません</b>${sh.status==="collecting"?`希望は「希望を出す」から ${S.deadlineDay}日まで に送ってください。`:(S.notifyPublish===true?"経営者が作成中です。公開されるとLINEでお知らせします。":"経営者が作成中です。公開されたらここに出ます。")}</div>`}
   </section>
-  ${pub&&state.selDay?vDayPeople(ym,state.selDay,m):(pub?`<p class="note">日付をタップすると、その日の出勤メンバーと時間、あなたの記録（同伴${m.drinkOn?"・ドリンクの杯数":""}）が見られます。</p>`:"")}`;
+  ${pub&&state.selDay?vDayPeople(ym,state.selDay,m):(pub?`<p class="note">日付をタップすると、その日の出勤メンバーと時間、あなたの記録（確定した時間・同伴${m.drinkOn?"・ドリンクの杯数":""}）が見られます。</p>`:"")}`;
 }
 function vDayPeople(ym,d,me){
   const {y,m}=parseYM(ym), c=dayCounts(ym)[d], w=dow(y,m,d), hol=isHol(y,m,d);
   // あなたのこの日の記録（タイムカードから。ドリンクは経営者が設定した人だけ）
   const r=me?((Store.tcOf(ym)[me.id]||{}).days||{})[d]:null;
-  const mine=!me?"":r&&r.in?`<div class="st" style="margin-bottom:10px;text-align:left"><b>あなたの記録</b>　${dropZero(r.in.slice(11,16))}〜${r.out?dropZero(r.out.slice(11,16)):"未退勤"}<br>${+r.douhan?"同伴あり":"同伴なし"}${me.drinkOn?`　／　ドリンク <b>${+r.drinks||0}杯</b>`:""}</div>`:`<div class="note" style="margin-bottom:10px">あなたの記録：この日の打刻はありません</div>`;
+  const mine=!me?"":r&&r.in?`<div class="st" style="margin-bottom:10px;text-align:left"><b>あなたの記録</b>　打刻 ${dropZero(r.in.slice(11,16))}〜${r.out?dropZero(r.out.slice(11,16)):"未退勤"}<br>${(cc=>cc&&!cc.open&&cc.inR?`確定 <b>${dropZero(cc.inR)}〜${dropZero(cc.outR)}</b>　実働 <b>${fmtH(cc.mins/60)}</b> 時間${r.brk?`（休憩 ${r.brk}分）`:""}<br>`:"確定：退勤の記録が入ると出ます<br>")(calcRec(r))}${+r.douhan?"同伴あり":"同伴なし"}${me.drinkOn?`　／　ドリンク <b>${+r.drinks||0}杯</b>`:""}</div>`:`<div class="note" style="margin-bottom:10px">あなたの記録：この日の打刻はありません</div>`;
   return `<section class="card"><h2>${m}月${d}日（${WD[w]}${hol?"・祝":""}）の出勤<small>${c.closed?"定休日":c.total+"名"}</small></h2>${mine}
   <div class="people">${c.on.length?c.on.map(r=>`<div class="pr"><span class="pill ${r.info.tags?.douhan?"dh":r.info.tags?.early?"ea":"on"}">${esc(tagLabel(r.info.tags)||"出勤")}</span><span class="nm">${esc(r.s.name)}</span><span class="tm">${dropZero(r.info.start)}〜${dropZero(r.info.end)}</span></div>`).join(""):(c.closed?"":'<div class="note">出勤者なし</div>')}
   ${c.off.map(r=>`<div class="pr off"><span class="pill">休</span><span class="nm">${esc(r.s.name)}</span><span class="tm"></span></div>`).join("")}</div></section>`;
