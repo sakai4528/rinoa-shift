@@ -140,6 +140,7 @@ h1,h2,h3{margin:0;font-family:var(--f-disp);font-weight:700;text-wrap:balance}
 .srow .l1{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .srow .who{font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .srow .who .wm{font-size:11px;font-weight:700;margin-left:6px}
+.cal.wishcal .d .lk{font-size:9px;line-height:1;margin-left:1px}
 .wm.x{color:var(--wish-x)}.wm.p{color:var(--wish-p)}.wm.o{color:var(--muted);font-weight:400}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:999px;overflow:hidden;flex:0 0 auto}
 .seg button{border:0;background:var(--panel);padding:6px 12px;font-size:13px;cursor:pointer;min-height:34px}
@@ -216,7 +217,7 @@ const CONFIG = {
 /* ============================================================
    共通
    ============================================================ */
-const SERVER_VERSION="2026-11-05.1";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
+const SERVER_VERSION="2026-11-05.2";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
 const TC_MODES={nearest:"四捨五入（15分未満は切り捨て、15分以上は30分扱い）",floor:"すべて切り捨て",ceil:"すべて切り上げ",favor:"出勤は切り上げ・退勤は切り捨て"};
 const WD = ["日","月","火","水","木","金","土"];
 const pad = n => String(n).padStart(2,"0");
@@ -449,7 +450,7 @@ function vMyShift(m){
     <div class="legend"><span><i style="background:var(--chip);box-shadow:inset 0 0 0 1.5px var(--accent)"></i>あなた（太枠）</span><span><i style="background:var(--douhan)"></i>同伴出勤</span><span><i style="background:var(--early)"></i>早上がり</span><span><i style="background:var(--today);box-shadow:inset 0 0 0 2px var(--accent)"></i>今日</span><span>点線＝時間が標準と違う</span></div>
     <div class="sum"><div><b>${days}</b><span>あなたの出勤日数</span></div><div><b>${fmtH(hours)}</b><span>予定時間（h）</span></div><div><b>${n-days}</b><span>休み</span></div></div>
     <div class="sum" style="grid-template-columns:repeat(${m.drinkOn?2:1},1fr)"><div><b>${dhDays}</b><span>同伴した日数（今月の記録）</span></div>${m.drinkOn?`<div><b>${drinks}</b><span>ドリンク（杯・今月の記録）</span></div>`:""}</div>`
-    :`<div class="empty"><b>${monthLabel(ym)}のシフトはまだ公開されていません</b>${sh.status==="collecting"?`希望は「希望を出す」から ${S.deadlineDay}日まで に送ってください。`:(S.notifyPublish===true?"経営者が作成中です。公開されるとLINEでお知らせします。":"経営者が作成中です。公開されたらここに出ます。")}</div>`}
+    :`<div class="empty"><b>${monthLabel(ym)}のシフトはまだ公開されていません</b>${sh.status==="collecting"?`希望は「希望を出す」から送ってください（当日まで出せます）。`:(S.notifyPublish===true?"経営者が作成中です。公開されるとLINEでお知らせします。":"経営者が作成中です。公開されたらここに出ます。")}</div>`}
   </section>
   ${pub&&state.selDay?vDayPeople(ym,state.selDay,m):(pub?`<p class="note">日付をタップすると、その日の出勤メンバーと時間、あなたの記録（確定した時間・同伴${m.drinkOn?"・ドリンクの杯数":""}）が見られます。</p>`:"")}`;
 }
@@ -463,8 +464,11 @@ function vDayPeople(ym,d,me){
   ${c.off.map(r=>`<div class="pr off"><span class="pill">休</span><span class="nm">${esc(r.s.name)}</span><span class="tm"></span></div>`).join("")}</div></section>`;
 }
 function vWish(m){
-  const ym=state.wishMonth, {y,m:mo}=parseYM(ym), S=Store.settings, editable=canEditWish(ym)||Store.isAdmin, saved=Store.wishesOf(ym)[m.id];
-  if(!state.draftWish||state.draftWish.month!==ym||state.draftWish.staffId!==m.id){ state.draftWish={month:ym,staffId:m.id,days:{...(saved?.days||{})},memo:saved?.memo||""}; state.draftDirty=false; }
+  // 締切なし：当日まで出せる。一度送った日はスタッフは変えられない（変更は かよさんに連絡 → 管理者が代理入力で直す）
+  const ym=state.wishMonth, {y,m:mo}=parseYM(ym), S=Store.settings, adm=Store.isAdmin, saved=Store.wishesOf(ym)[m.id];
+  const sentDays=saved?.days||{}, locked=d=>!adm&&(sentDays[d]?.t==="o"||sentDays[d]?.t==="p"), past=d=>!adm&&`${ym}-${pad(d)}`<BIZ_TODAY;
+  const editable=adm||ym>=BIZ_YM;
+  if(!state.draftWish||state.draftWish.month!==ym||state.draftWish.staffId!==m.id){ state.draftWish={month:ym,staffId:m.id,days:{...sentDays},memo:adm?(saved?.memo||""):""}; state.draftDirty=false; }
   const W=state.draftWish, n=daysIn(y,mo), first=dow(y,mo,1), cells=[];
   for(let i=0;i<first;i++) cells.push('<div class="d empty"></div>');
   let xs=0;
@@ -480,21 +484,23 @@ function vWish(m){
       others.forEach(s=>{ const ow=allW[s.id]; if(!ow) return; const ov=(ow.days||{})[d]; if(!(ov?.t==="o"||ov?.t==="p")) return; people.push({s,me:false,cus:ov?.t==="p"}); });
     }
     const MAX=5; let names=people.slice(0,MAX).map(p=>`<span class="nm ${p.me?"me":""} ${p.cus?"cus":""}${tagCls(p.tags)}"><span class="s">${esc(shortName(p.s))}</span><span class="f">${esc(p.s.name)}</span></span>`).join(""); if(people.length>MAX) names+=`<span class="more">他${people.length-MAX}人</span>`;
-    cells.push(`<button class="d ${w===6?"sat":""} ${w===0?"sun":""} ${hol?"hol":""} ${closed?"closed":""} ${key===TODAY?"today":""} ${mine?"wx":""} ${state.selDay===d?"sel":""}" data-act="${editable&&!closed?"wishDay":"selDay"}" data-d="${d}" aria-label="${mo}月${d}日"><span class="top"><span class="n">${d}</span>${closed?'<span class="cnt">定休</span>':mark}</span><span class="names">${closed?"":names}</span></button>`);
+    cells.push(`<button class="d ${w===6?"sat":""} ${w===0?"sun":""} ${hol?"hol":""} ${closed?"closed":""} ${key===TODAY?"today":""} ${mine?"wx":""} ${state.selDay===d?"sel":""}" data-act="${closed||!editable||past(d)?"selDay":locked(d)?"wishLocked":"wishDay"}" data-d="${d}" aria-label="${mo}月${d}日"><span class="top"><span class="n">${d}</span>${closed?'<span class="cnt">定休</span>':mark}${locked(d)?'<span class="lk" aria-label="送信済み">🔒</span>':""}</span><span class="names">${closed?"":names}</span></button>`);
   }
   while(cells.length%7) cells.push('<div class="d empty"></div>');
-  const sel=state.selDay, sv=sel?W.days[sel]:null, deadline=`${parseYM(addMonth(ym,-1)).m}月${S.deadlineDay}日`;
+  const sel=state.selDay, sv=sel?W.days[sel]:null;
   return `<section class="card">
     ${vMonthNav("wm",ym,"の希望")}
-    <div class="row space" style="margin:8px 0 10px"><span>${statusBadge(Store.shiftOf(ym).status)}</span><span class="note">${editable?`締切：${deadline}`:"受付は終了しました"}</span></div>
-    ${editable?`<p class="note" style="margin:0 0 8px"><b>入れる日をタップすると、自分の名前が入ります。</b>もう一度タップで <b style="color:var(--wish-p)">時間</b>（時間指定）、さらにタップで取り消し。何も押していない日は「入らない」扱いです。</p>`:""}
+    <div class="row space" style="margin:8px 0 10px"><span>${statusBadge(Store.shiftOf(ym).status)}</span><span class="note">${editable?"当日まで出せます":"過ぎた月です"}</span></div>
+    ${editable?`<p class="note" style="margin:0 0 8px"><b>入れる日をタップすると、自分の名前が入ります。</b>もう一度タップで <b style="color:var(--wish-p)">時間</b>（時間指定）、さらにタップで取り消し。何も押していない日は「入らない」扱いです。</p>${adm?"":`<div class="hint" style="margin:0 0 8px">🔒 送信した日は、あとから変えたり消したりできません。<b>変更・取り消しは かよさんに連絡</b>してください（かよさんが直します）。</div>`}`:""}
     <div class="cal mc wishcal">${WD.map((w,i)=>`<div class="dh ${i===6?"sat":""} ${i===0?"sun":""}">${w}</div>`).join("")}${cells.join("")}</div>
     <div class="legend"><span>名前＝その日に入る人${pub?"（確定）":"（確定前は「出勤できる」と答えている人）"}</span><span><i style="background:var(--chip);box-shadow:inset 0 0 0 1.5px var(--accent)"></i>あなた</span><span><b style="color:var(--wish-p)">時間</b>＝時間指定</span></div>
-    ${editable&&sel&&sv?.t==="p"?`<div class="timebox"><input type="time" id="wFrom" data-wt="from" data-d="${sel}" value="${esc(sv.from||"10:00")}" aria-label="開始"><span>〜</span><input type="time" id="wTo" data-wt="to" data-d="${sel}" value="${esc(sv.to||"15:00")}" aria-label="終了"></div><p class="note">${mo}月${sel}日は この時間なら出勤できる、という指定です。</p>`:""}
+    ${editable&&sel&&sv?.t==="p"&&!locked(sel)?`<div class="timebox"><input type="time" id="wFrom" data-wt="from" data-d="${sel}" value="${esc(sv.from||"10:00")}" aria-label="開始"><span>〜</span><input type="time" id="wTo" data-wt="to" data-d="${sel}" value="${esc(sv.to||"15:00")}" aria-label="終了"></div><p class="note">${mo}月${sel}日は この時間なら出勤できる、という指定です。</p>`:""}
     <div class="legend"><span>出勤希望 <b style="color:var(--accent)">${xs}</b> 日</span>${saved?`<span>最終送信：${esc((saved.updatedAt||"").slice(0,16).replace("T"," "))}</span>`:'<span>まだ送信していません</span>'}</div>
-    ${editable?`<label class="f" style="margin-top:10px;display:flex;flex-direction:column;gap:5px;font-size:13px;font-weight:700">連絡事項<span class="h">（例：15日は学校行事のため午前のみ可）</span><textarea id="wMemo" maxlength="300" placeholder="任意">${esc(W.memo)}</textarea></label>
-    <div class="wishctl"><button class="btn block" data-act="sendWish" ${state.busy?"disabled":""}>${saved?"希望を更新して送信":"希望を送信"}</button></div>${state.draftDirty?'<p class="note" style="margin:6px 0 0;color:var(--warn)">未送信の変更があります</p>':""}`
-    :`<div class="hint" style="margin-top:10px">${monthLabel(ym)}の希望受付は締め切られました。変更がある場合は直接ご連絡ください。</div>`}
+    ${sel&&locked(sel)?`<p class="note">${mo}月${sel}日は送信済みです${sentDays[sel].t==="p"?`（${dropZero(sentDays[sel].from)}〜${dropZero(sentDays[sel].to)}）`:""}。変更・取り消しは かよさんに連絡してください。</p>`:""}
+    ${!adm&&saved?.memo?`<div class="st" style="margin-top:10px;text-align:left;white-space:pre-wrap"><b>送信済みの連絡事項</b><br>${esc(saved.memo)}</div>`:""}
+    ${editable?`<label class="f" style="margin-top:10px;display:flex;flex-direction:column;gap:5px;font-size:13px;font-weight:700">${!adm&&saved?.memo?"連絡事項を書き足す":"連絡事項"}<span class="h">（例：15日は学校行事のため午前のみ可）</span><textarea id="wMemo" maxlength="300" placeholder="任意">${esc(W.memo)}</textarea></label>
+    <div class="wishctl"><button class="btn block" data-act="sendWish" ${state.busy?"disabled":""}>${saved?(adm?"希望を更新して送信":"追加した日を送信"):"希望を送信"}</button></div>${state.draftDirty?'<p class="note" style="margin:6px 0 0;color:var(--warn)">未送信の変更があります</p>':""}`
+    :`<div class="hint" style="margin-top:10px">${monthLabel(ym)}は過ぎた月です。変更がある場合は かよさんに連絡してください。</div>`}
   </section>`;
 }
 function findOpenRec(sid){
@@ -672,7 +678,7 @@ function vWishList(){
     return `<tr><td><b>${esc(s.name)}</b><br><button class="btn ghost sm" data-act="viewAs" data-id="${esc(s.id)}">代理入力</button></td><td>${w?`<span class="badge pub">提出済</span><div class="note">${esc((w.updatedAt||"").slice(0,16).replace("T"," "))}</div>`:'<span class="badge">未提出</span>'}</td><td>${xs.length?xs.map(d=>`${d}日(${WD[dow(y,m,d)]})`).join("、"):"—"}</td><td>${ps.length?ps.join("<br>"):"—"}</td><td>${esc(w?.memo||"")}</td></tr>`; }).join("");
   const done=list.filter(s=>wishes[s.id]).length;
   return `<section class="card"><div class="row space">${vMonthNav("pm",ym)}<span class="badge ${done===list.length&&list.length?"pub":"col"}">提出 ${done}／${list.length}名</span></div>
-  <p class="note" style="margin:8px 0">締切は毎月${S.deadlineDay}日（前月）。${S.notifyDeadline===true?"締切3日前と当日の朝9時に、未提出の人へ自動でLINEが届きます。":"締切のLINEは送らない設定です（「設定」で変えられます）。"}</p>
+  <p class="note" style="margin:8px 0">希望は当日まで出せます。送った日はスタッフ本人は変えられないので、変更は「代理入力」から直してください。目安は毎月${S.deadlineDay}日（前月）。${S.notifyDeadline===true?"締切3日前と当日の朝9時に、未提出の人へ自動でLINEが届きます。":"締切のLINEは送らない設定です（「設定」で変えられます）。"}</p>
   <div class="tbl"><table class="list"><thead><tr><th>スタッフ</th><th>提出</th><th>入れる日</th><th>時間指定</th><th>連絡事項</th></tr></thead><tbody>${rows||'<tr><td colspan="5" class="note">スタッフが登録されていません</td></tr>'}</tbody></table></div></section>`;
 }
 function vStaffAdmin(){
@@ -701,7 +707,7 @@ function vSettings(){
   <form class="f" id="setf" style="margin-top:8px">
     <div class="kv"><label>店名<input type="text" name="name" id="cName" value="${esc(S.name)}" maxlength="20" required></label><label>英字表記<span class="h">（見出しの小文字）</span><input type="text" name="eyebrow" id="cEyebrow" value="${esc(S.eyebrow||"")}" maxlength="24"></label></div>
     <div class="kv"><label>標準の出勤時間（開始）<span class="h">「出勤」にした人の時間</span><input type="time" name="openStart" id="cOpenStart" value="${esc(S.openStart)}" required></label><label>標準の出勤時間（終了）<input type="time" name="openEnd" id="cOpenEnd" value="${esc(S.openEnd)}" required></label></div>
-    <div class="kv"><label>希望の締切日<span class="h">（前月の何日まで）</span><input type="number" name="deadlineDay" id="cDeadline" min="1" max="28" value="${esc(S.deadlineDay)}"></label><label>管理画面の暗証番号<span class="h">（空欄なら変更しない）</span><input type="text" name="pin" id="cPin" inputmode="numeric" value="" maxlength="8" placeholder="新しい暗証番号"></label></div>
+    <div class="kv"><label>希望を出してほしい目安の日<span class="h">（前月の何日。過ぎても出せます）</span><input type="number" name="deadlineDay" id="cDeadline" min="1" max="28" value="${esc(S.deadlineDay)}"></label><label>管理画面の暗証番号<span class="h">（空欄なら変更しない）</span><input type="text" name="pin" id="cPin" inputmode="numeric" value="" maxlength="8" placeholder="新しい暗証番号"></label></div>
     <div><div style="font-size:13px;font-weight:700;margin-bottom:6px">曜日ごとの必要人数</div><div class="reqrow">${WD.map((w,i)=>`<label>${w}<input type="number" name="req${i}" id="req${i}" min="0" max="20" value="${esc((S.required||[])[i]??0)}"></label>`).join("")}</div></div>
     <div class="kv"><label>タイムカードの刻み<select name="tcUnit" id="cTcUnit">${[15,30,60].map(u=>`<option value="${u}" ${(+S.tcUnit||30)===u?"selected":""}>${u}分</option>`).join("")}</select></label><label>丸め方<select name="tcMode" id="cTcMode">${Object.entries(TC_MODES).map(([k,v])=>`<option value="${k}" ${(S.tcMode||"nearest")===k?"selected":""}>${v}</option>`).join("")}</select></label></div>
     <div><div style="font-size:13px;font-weight:700;margin-bottom:6px">定休日</div><div class="row">${WD.map((w,i)=>`<label class="inline" style="font-weight:400;flex-direction:row;align-items:center;gap:4px"><input type="checkbox" name="closed${i}" id="closed${i}" ${(S.closed||[]).includes(i)?"checked":""}>${w}</label>`).join("")}<label class="inline" style="font-weight:700;flex-direction:row;align-items:center;gap:4px;margin-left:6px"><input type="checkbox" name="closedHol" id="closedHol" ${S.closedHol!==false?"checked":""}>祝日も定休日</label></div><p class="note" style="margin:4px 0 0">祝日は振替休日まで自動で判定します。</p></div>
@@ -768,7 +774,9 @@ app.addEventListener("click", async e=>{
     case "dayAll": { const d=state.sheetDay, v=t.dataset.v; writeCells(c=>{ activeStaff().forEach(s=>{ if(v) c[`${d}_${s.id}`]=v; else delete c[`${d}_${s.id}`]; }); }); break; }
     case "viewAs": state.proxyId=t.dataset.id; state.role="staff"; state.tab="wish"; state.draftWish=null; go(); toast(`${Store.staff.find(s=>s.id===t.dataset.id)?.name||""}さんとして入力中（代理）`); break;
     case "wishDay": { const d=+t.dataset.d, W=state.draftWish, cur=W.days[d]?.t; if(cur!=="o"&&cur!=="p") W.days[d]={t:"o"}; else if(cur==="o") W.days[d]={t:"p",from:Store.settings.openStart||"10:00",to:Store.settings.openEnd||"15:00"}; else delete W.days[d]; state.selDay=d; state.draftDirty=true; go(); break; }
-    case "sendWish": await busy(async()=>{ const W=state.draftWish; W.memo=$("#wMemo")?.value||""; await Store.saveWish({month:W.month,staffId:W.staffId,days:W.days,memo:W.memo}); state.draftDirty=false; toast("希望を送信しました"); }); break;
+    case "sendWish": { const W=state.draftWish; W.memo=$("#wMemo")?.value||""; if(!Store.isAdmin&&!confirm("送信した日は、あとから変えたり消したりできません（変更は かよさんに連絡）。送信しますか？")) break;
+      await busy(async()=>{ await Store.saveWish({month:W.month,staffId:W.staffId,days:W.days,memo:W.memo}); state.draftWish=null; state.draftDirty=false; toast("希望を送信しました"); }); break; }
+    case "wishLocked": state.selDay=+t.dataset.d; go(); toast("送信済みの日です。変更は かよさんに連絡してください"); break;
     case "status": await busy(async()=>{ const sh={...Store.shiftOf(state.month)}; sh.cells={...sh.cells}; sh.status=t.dataset.v; await Store.saveShiftNow(sh); toast({published:Store.settings.notifyPublish===true?"シフトを公開し、スタッフにLINEで通知しました":"シフトを公開しました",editing:"受付を締め切りました",collecting:"希望受付を再開しました"}[sh.status]); }); break;
     case "applyWish": { const wishes=Store.wishesOf(state.month), {y,m}=parseYM(state.month); let n=0,off=0; writeCells(c=>{ activeStaff().forEach(s=>{ const wdoc=wishes[s.id]; if(!wdoc) return; const days=wdoc.days||{}; for(let d=1;d<=daysIn(y,m);d++){ const k=`${d}_${s.id}`; if(c[k]) continue; const v=days[d]; if(isClosedDay(y,m,d)){ c[k]="OFF"; continue; } if(v?.t==="o"){ c[k]="ON"; n++; } else if(v?.t==="p"&&v.from&&v.to){ c[k]=(v.from===S.openStart&&v.to===S.openEnd)?"ON":`C:${v.from}-${v.to}`; n++; } else { c[k]="OFF"; off++; } } }); }); toast(`提出済みの希望を反映：出勤 ${n}マス・休 ${off}マス（未提出の人は変えていません）`); break; }
     case "fillDefault": { const {y,m}=parseYM(state.month); let n=0; writeCells(c=>{ activeStaff().forEach(s=>{ for(let d=1;d<=daysIn(y,m);d++){ const k=`${d}_${s.id}`; if(!c[k]){ c[k]= isClosedDay(y,m,d)?"OFF":"ON"; n++; } } }); }); toast(`${n}マスを埋めました（定休日・祝日は休）`); break; }

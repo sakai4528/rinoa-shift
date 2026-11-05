@@ -14,7 +14,7 @@
  *   4. デプロイ → 新しいデプロイ → ウェブアプリ（実行ユーザー: 自分 / アクセス: 全員）
  */
 
-const VERSION = "2026-11-05.1";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
+const VERSION = "2026-11-05.2";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
 const TZ = "Asia/Tokyo";
 const PROP = PropertiesService.getScriptProperties();
 
@@ -152,17 +152,37 @@ function handle_(action, data, auth) {
       const sid = (isAdmin && data.staffId) ? data.staffId : (me && me.id);
       if (!sid) throw new Error("not_registered");
       const month = ym_(data.month);
-      const shift = readAll_("shifts").find(r => r.month === month);
-      if (!isAdmin && shift && shift.status && shift.status !== "collecting") throw new Error("closed");
-      const w = { month, staffId: sid, days: data.days || {}, memo: String(data.memo || "").slice(0, 300), updatedAt: nowStr_() };
+      // 2026-11-05 やっさん：締切なし（当日まで出せる）。一度出した日はスタッフは変えられない（変更は管理者が直す）
+      const prev = readAll_("wishes").find(r => r.month === month && r.staffId === sid);
+      const inDays = data.days || {};
+      let days = inDays, memo = String(data.memo || "").slice(0, 300), added = [];
+      if (!isAdmin) {
+        const old = (prev && prev.days) || {}, today = bizDate_();
+        const isOn = v => v && (v.t === "o" || v.t === "p");
+        days = {};
+        Object.keys(old).forEach(d => { days[d] = old[d]; });   // 出した日はそのまま（消せない・変えられない）
+        Object.keys(inDays).forEach(d => {
+          if (old[d] || !isOn(inDays[d])) return;
+          if (month + "-" + ("0" + d).slice(-2) < today) return;  // 過ぎた日は足せない
+          const v = inDays[d];
+          days[d] = v.t === "p" ? { t: "p", from: String(v.from || ""), to: String(v.to || "") } : { t: "o" };
+          added.push(+d);
+        });
+        const oldMemo = String((prev && prev.memo) || "");
+        const more = memo.trim();
+        memo = (oldMemo && more ? oldMemo + "\n" + more : (oldMemo || more)).slice(0, 600);   // 連絡事項は書き足すだけ
+        if (prev && !added.length && memo === oldMemo) return { wish: prev, added: [] };
+      }
+      const w = { month, staffId: sid, days, memo, updatedAt: nowStr_() };
       upsert_("wishes", ["month", "staffId"], w);
-      log_(auth, "saveWish", month + " " + sid);
+      log_(auth, "saveWish", month + " " + sid + (added.length ? " +" + added.sort((a, b) => a - b).join(",") : ""));
       if (settings.notifyWish && !isAdmin) {
         const who = staff.find(s => s.id === sid);
-        const xs = Object.keys(w.days).filter(d => w.days[d] && (w.days[d].t === "o" || w.days[d].t === "p")).length;
-        pushTo_(admins.map(a => a.userId), `【${settings.name}】${who ? who.name : ""}さんが${+month.slice(5)}月の希望を提出しました（入れる日 ${xs}日）。`);
+        const m = +month.slice(5);
+        const list = added.sort((a, b) => a - b).map(d => m + "/" + d + (days[d].t === "p" ? `(${days[d].from}〜${days[d].to})` : "")).join("、");
+        pushTo_(admins.map(a => a.userId), `【${settings.name}】${who ? who.name : ""}さんが${m}月の希望を${prev ? "追加" : "提出"}しました。${list ? "\n入れる日：" + list : ""}${memo !== String((prev && prev.memo) || "") ? "\n連絡事項：" + memo.split("\n").pop() : ""}`);
       }
-      return { wish: w };
+      return { wish: w, added };
     }
 
     case "punch": {
