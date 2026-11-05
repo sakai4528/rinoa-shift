@@ -216,7 +216,7 @@ const CONFIG = {
 /* ============================================================
    共通
    ============================================================ */
-const SERVER_VERSION="2026-10-31.1";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
+const SERVER_VERSION="2026-11-05.1";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
 const TC_MODES={nearest:"四捨五入（15分未満は切り捨て、15分以上は30分扱い）",floor:"すべて切り捨て",ceil:"すべて切り上げ",favor:"出勤は切り上げ・退勤は切り捨て"};
 const WD = ["日","月","火","水","木","金","土"];
 const pad = n => String(n).padStart(2,"0");
@@ -503,8 +503,8 @@ function vTimecard(m){
   let body;
   const canPunch = S.phonePunch===true || Store.isAdmin;
   const schedTxt = sched?(sched.kind==="off"?"本日は休みの予定です":`本日の予定：<b>${dropZero(sched.start)}〜${dropZero(sched.end)}</b>${tagLabel(sched.tags)?`（${esc(tagLabel(sched.tags))}）`:""}`):"本日のシフト予定はありません";
-  if(!rec) body=`<div class="st">${schedTxt}</div>${canPunch?`<button class="btn big" data-act="punchIn" ${state.busy?"disabled":""}>出　勤</button>`:`<div class="hint" style="font-size:14px">出勤・退勤は<b>店内のiPad</b>で、自分の名前をタップして押してください。</div>`}`;
-  else if(c.open) body=`<div class="st"><b>出勤中</b><br>${dropZero(rec.in.slice(11,16))} に出勤（${dropZero(c.inR)} として計算）</div>${canPunch?`<div class="brkrow">休憩 <input type="number" id="tcBrk" min="0" max="300" step="5" value="${esc(rec.brk||0)}" inputmode="numeric"> 分</div>${m.drinkOn?`<div class="brkrow">今日のドリンク <input type="number" id="tcDr" min="0" max="99" step="1" value="0" inputmode="numeric"> 杯</div>`:""}<label class="brkrow" style="cursor:pointer"><input type="checkbox" id="tcDh" ${sched&&sched.tags&&sched.tags.douhan?"checked":""} style="width:22px;height:22px;min-height:0"> 今日は同伴あり</label><button class="btn big out" data-act="punchOut" ${state.busy?"disabled":""}>退　勤</button>`:`<div class="hint" style="font-size:14px">帰るときは<b>店内のiPad</b>で「退勤」を押してください。</div>`}`;
+  if(!rec) body=`<div class="st">${schedTxt}</div>${canPunch?`<label class="brkrow" style="cursor:pointer"><input type="checkbox" id="tcDhIn" ${sched&&sched.tags&&sched.tags.douhan?"checked":""} style="width:22px;height:22px;min-height:0"> 今日は同伴あり</label><button class="btn big" data-act="punchIn" ${state.busy?"disabled":""}>出　勤</button>`:`<div class="hint" style="font-size:14px">出勤・退勤は<b>店内のiPad</b>で、自分の名前をタップして押してください。</div>`}`;
+  else if(c.open) body=`<div class="st"><b>出勤中</b><br>${dropZero(rec.in.slice(11,16))} に出勤（${dropZero(c.inR)} として計算）</div>${canPunch?`<div class="brkrow">休憩 <input type="number" id="tcBrk" min="0" max="300" step="5" value="${esc(rec.brk||0)}" inputmode="numeric"> 分</div>${m.drinkOn?`<div class="brkrow">今日のドリンク <input type="number" id="tcDr" min="0" max="99" step="1" value="0" inputmode="numeric"> 杯</div>`:""}<label class="brkrow" style="cursor:pointer"><input type="checkbox" id="tcDh" ${+rec.douhan||(sched&&sched.tags&&sched.tags.douhan)?"checked":""} style="width:22px;height:22px;min-height:0"> 今日は同伴あり</label><button class="btn big out" data-act="punchOut" ${state.busy?"disabled":""}>退　勤</button>`:`<div class="hint" style="font-size:14px">帰るときは<b>店内のiPad</b>で「退勤」を押してください。</div>`}`;
   else body=`<div class="st"><b>本日はお疲れさまでした</b><br>${dropZero(rec.in.slice(11,16))} 出勤 → ${dropZero(rec.out.slice(11,16))} 退勤${rec.brk?`（休憩 ${rec.brk}分）`:""}<br>計算：${dropZero(c.inR)}〜${dropZero(c.outR)}　実働 <b>${fmtH(c.mins/60)}</b> 時間${extraTxt(rec,!m.drinkOn)?`<br>${esc(extraTxt(rec,!m.drinkOn))}`:""}</div><p class="note">時刻${m.drinkOn?"や杯数":""}の修正が必要なときは経営者に伝えてください。</p>`;
   return `<section class="card">
     <div class="punch"><div class="date">${bz.getMonth()+1}月${d}日（${WD[bz.getDay()]}${isHol(bz.getFullYear(),bz.getMonth()+1,d)?"・祝":""}）の営業${now.getDate()!==d?`<span class="note" style="display:block">夜中の0時〜朝6時は前の日の勤務として記録します</span>`:""}</div><div class="clock" id="clock">${pad(now.getHours())}:${pad(now.getMinutes())}</div>${body}
@@ -776,7 +776,7 @@ app.addEventListener("click", async e=>{
     case "editStaff": state.editStaff=Store.staff.find(s=>s.id===t.dataset.id)||null; go(); $("#sName")?.focus(); break;
     case "cancelEdit": state.editStaff=null; go(); break;
     case "delStaff": { if(t.dataset.sure!=="1"){ t.dataset.sure="1"; t.textContent="本当に削除（もう一度タップ）"; break; } await busy(async()=>{ await Store.deleteStaff(t.dataset.id); state.editStaff=null; toast("削除しました"); }); break; }
-    case "punchIn": await busy(async()=>{ await Store.punch({type:"in"}); toast("出勤を記録しました"); }); break;
+    case "punchIn": await busy(async()=>{ const dh=!!$("#tcDhIn")?.checked; await Store.punch({type:"in",douhan:dh}); toast(dh?"出勤を記録しました（同伴）":"出勤を記録しました"); }); break;
     case "punchOut": await busy(async()=>{ await Store.punch({type:"out",brk:Math.max(0,+($("#tcBrk")?.value||0)),drinks:Math.max(0,Math.min(99,Math.floor(+($("#tcDr")?.value||0)))),douhan:!!$("#tcDh")?.checked}); toast("退勤を記録しました。お疲れさまでした"); }); break;
     case "fixOpen": await busy(async()=>{ const hm=$("#openOut")?.value; if(!hm) throw new Error("退勤時刻を入れてください"); await Store.punch({type:"fixOut",month:t.dataset.ym,day:+t.dataset.d,hm}); toast("退勤を登録しました（手入力）"); }); break;
     case "tcStaff": state.tcStaff = state.tcStaff===t.dataset.id?null:t.dataset.id; state.lineText=null; go(); if(state.tcStaff) $("#tcdetail")?.scrollIntoView({behavior:"smooth",block:"start"}); break;

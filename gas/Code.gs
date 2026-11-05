@@ -14,7 +14,7 @@
  *   4. デプロイ → 新しいデプロイ → ウェブアプリ（実行ユーザー: 自分 / アクセス: 全員）
  */
 
-const VERSION = "2026-10-31.1";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
+const VERSION = "2026-11-05.1";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
 const TZ = "Asia/Tokyo";
 const PROP = PropertiesService.getScriptProperties();
 
@@ -782,7 +782,7 @@ function todayStatus_(staff) {
   staff.forEach(s => {
     const t = tcs.find(r => r.staffId === s.id); const rec = t && t.days && t.days[day];
     const cell = shift && shift.status === "published" && shift.cells ? shift.cells[day + "_" + s.id] || "" : "";
-    out[s.id] = { in: rec && rec.in ? rec.in.slice(11, 16) : "", out: rec && rec.out ? rec.out.slice(11, 16) : "", brk: rec ? (+rec.brk || 0) : 0, sched: cell };
+    out[s.id] = { in: rec && rec.in ? rec.in.slice(11, 16) : "", out: rec && rec.out ? rec.out.slice(11, 16) : "", brk: rec ? (+rec.brk || 0) : 0, douhan: rec && +rec.douhan ? 1 : 0, sched: cell };
   });
   return { date: today, status: out, serverTime: fmt_(now, "HH:mm") };
 }
@@ -814,7 +814,7 @@ function handleDevice_(action, data, device) {
       log_({ userId: "device:" + device.id }, "kioskPunch:" + data.type, s.name);
       const today = todayStatus_(staff);
       const day = String(+bizDate_().slice(8)); const rec = (r.timecard.days || {})[day];
-      if (today.status[s.id]) { today.status[s.id].in = rec && rec.in ? rec.in.slice(11, 16) : ""; today.status[s.id].out = rec && rec.out ? rec.out.slice(11, 16) : ""; today.status[s.id].brk = rec ? (+rec.brk || 0) : 0; }
+      if (today.status[s.id]) { today.status[s.id].in = rec && rec.in ? rec.in.slice(11, 16) : ""; today.status[s.id].out = rec && rec.out ? rec.out.slice(11, 16) : ""; today.status[s.id].brk = rec ? (+rec.brk || 0) : 0; today.status[s.id].douhan = rec && +rec.douhan ? 1 : 0; }
       return Object.assign(r, { today });
     }
     default: throw new Error("unknown_action");
@@ -836,6 +836,7 @@ function punch_(staffRow, data, via) {
   if (data.type === "in") {
     if (doc.days[day] && doc.days[day].in) throw new Error("already_in");
     doc.days[day] = { in: stamp, brk: 0, via };
+    if (data.douhan === true || +data.douhan > 0) doc.days[day].douhan = 1;   // 出勤のときに「今日は同伴」を押せる（退勤のときに直せる）
   } else if (data.type === "out") {
     const r = doc.days[day];
     if (!r || !r.in) throw new Error("not_in");
