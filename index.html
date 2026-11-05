@@ -440,19 +440,25 @@ function vRegister(){
 function vMyShift(m){
   const ym=state.month, {y,m:mo}=parseYM(ym), sh=Store.shiftOf(ym), S=Store.settings, pub=sh.status==="published", n=daysIn(y,mo);
   let days=0,hours=0; if(pub) for(let d=1;d<=n;d++){ const info=cellInfo(sh.cells[`${d}_${m.id}`],S); if(info&&info.kind!=="off"){ days++; hours+=info.hours; } }
+  // 実際の記録（タイムカード）から：同伴した日数（全員）・ドリンクの杯数（経営者が設定した人だけ）
+  const recs=Object.values((Store.tcOf(ym)[m.id]||{}).days||{}).filter(r=>r&&r.in), dhDays=recs.filter(r=>+r.douhan).length, drinks=recs.reduce((t,r)=>t+(+r.drinks||0),0);
   return `<section class="card">
     ${vMonthNav("pm",ym)}
     <div class="row space" style="margin:8px 0 10px"><span>${statusBadge(sh.status)}</span>${pub&&sh.publishedAt?`<span class="note">${esc(sh.publishedAt.slice(0,10))} 公開</span>`:""}</div>
     ${pub?`${vMonthCal(ym,{meId:m.id})}
     <div class="legend"><span><i style="background:var(--chip);box-shadow:inset 0 0 0 1.5px var(--accent)"></i>あなた（太枠）</span><span><i style="background:var(--douhan)"></i>同伴出勤</span><span><i style="background:var(--early)"></i>早上がり</span><span><i style="background:var(--today);box-shadow:inset 0 0 0 2px var(--accent)"></i>今日</span><span>点線＝時間が標準と違う</span></div>
-    <div class="sum"><div><b>${days}</b><span>あなたの出勤日数</span></div><div><b>${fmtH(hours)}</b><span>予定時間（h）</span></div><div><b>${n-days}</b><span>休み</span></div></div>`
+    <div class="sum"><div><b>${days}</b><span>あなたの出勤日数</span></div><div><b>${fmtH(hours)}</b><span>予定時間（h）</span></div><div><b>${n-days}</b><span>休み</span></div></div>
+    <div class="sum" style="grid-template-columns:repeat(${m.drinkOn?2:1},1fr)"><div><b>${dhDays}</b><span>同伴した日数（今月の記録）</span></div>${m.drinkOn?`<div><b>${drinks}</b><span>ドリンク（杯・今月の記録）</span></div>`:""}</div>`
     :`<div class="empty"><b>${monthLabel(ym)}のシフトはまだ公開されていません</b>${sh.status==="collecting"?`希望は「希望を出す」から ${S.deadlineDay}日まで に送ってください。`:(S.notifyPublish===true?"経営者が作成中です。公開されるとLINEでお知らせします。":"経営者が作成中です。公開されたらここに出ます。")}</div>`}
   </section>
-  ${pub&&state.selDay?vDayPeople(ym,state.selDay):(pub?`<p class="note">日付をタップすると、その日の出勤メンバーと時間が見られます。</p>`:"")}`;
+  ${pub&&state.selDay?vDayPeople(ym,state.selDay,m):(pub?`<p class="note">日付をタップすると、その日の出勤メンバーと時間、あなたの記録（同伴${m.drinkOn?"・ドリンクの杯数":""}）が見られます。</p>`:"")}`;
 }
-function vDayPeople(ym,d){
+function vDayPeople(ym,d,me){
   const {y,m}=parseYM(ym), c=dayCounts(ym)[d], w=dow(y,m,d), hol=isHol(y,m,d);
-  return `<section class="card"><h2>${m}月${d}日（${WD[w]}${hol?"・祝":""}）の出勤<small>${c.closed?"定休日":c.total+"名"}</small></h2>
+  // あなたのこの日の記録（タイムカードから。ドリンクは経営者が設定した人だけ）
+  const r=me?((Store.tcOf(ym)[me.id]||{}).days||{})[d]:null;
+  const mine=!me?"":r&&r.in?`<div class="st" style="margin-bottom:10px;text-align:left"><b>あなたの記録</b>　${dropZero(r.in.slice(11,16))}〜${r.out?dropZero(r.out.slice(11,16)):"未退勤"}<br>${+r.douhan?"同伴あり":"同伴なし"}${me.drinkOn?`　／　ドリンク <b>${+r.drinks||0}杯</b>`:""}</div>`:`<div class="note" style="margin-bottom:10px">あなたの記録：この日の打刻はありません</div>`;
+  return `<section class="card"><h2>${m}月${d}日（${WD[w]}${hol?"・祝":""}）の出勤<small>${c.closed?"定休日":c.total+"名"}</small></h2>${mine}
   <div class="people">${c.on.length?c.on.map(r=>`<div class="pr"><span class="pill ${r.info.tags?.douhan?"dh":r.info.tags?.early?"ea":"on"}">${esc(tagLabel(r.info.tags)||"出勤")}</span><span class="nm">${esc(r.s.name)}</span><span class="tm">${dropZero(r.info.start)}〜${dropZero(r.info.end)}</span></div>`).join(""):(c.closed?"":'<div class="note">出勤者なし</div>')}
   ${c.off.map(r=>`<div class="pr off"><span class="pill">休</span><span class="nm">${esc(r.s.name)}</span><span class="tm"></span></div>`).join("")}</div></section>`;
 }
