@@ -14,7 +14,7 @@
  *   4. デプロイ → 新しいデプロイ → ウェブアプリ（実行ユーザー: 自分 / アクセス: 全員）
  */
 
-const VERSION = "2026-11-05.2";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
+const VERSION = "2026-11-07.1";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
 const TZ = "Asia/Tokyo";
 const PROP = PropertiesService.getScriptProperties();
 
@@ -166,6 +166,7 @@ function handle_(action, data, auth) {
           if (month + "-" + ("0" + d).slice(-2) < today) return;  // 過ぎた日は足せない
           const v = inDays[d];
           days[d] = v.t === "p" ? { t: "p", from: String(v.from || ""), to: String(v.to || "") } : { t: "o" };
+          days[d].at = nowStr_().slice(0, 16);   // いつ足したか（公開後に足した日は「承認待ち」になる）
           added.push(+d);
         });
         const oldMemo = String((prev && prev.memo) || "");
@@ -180,7 +181,9 @@ function handle_(action, data, auth) {
         const who = staff.find(s => s.id === sid);
         const m = +month.slice(5);
         const list = added.sort((a, b) => a - b).map(d => m + "/" + d + (days[d].t === "p" ? `(${days[d].from}〜${days[d].to})` : "")).join("、");
-        pushTo_(admins.map(a => a.userId), `【${settings.name}】${who ? who.name : ""}さんが${m}月の希望を${prev ? "追加" : "提出"}しました。${list ? "\n入れる日：" + list : ""}${memo !== String((prev && prev.memo) || "") ? "\n連絡事項：" + memo.split("\n").pop() : ""}`);
+        const shNow = readAll_("shifts").find(r => r.month === month);
+        const afterPub = shNow && shNow.status === "published" && added.length;
+        pushTo_(admins.map(a => a.userId), `【${settings.name}】${who ? who.name : ""}さんが${m}月の希望を${prev ? "追加" : "提出"}しました。${list ? "\n入れる日：" + list : ""}${memo !== String((prev && prev.memo) || "") ? "\n連絡事項：" + memo.split("\n").pop() : ""}${afterPub ? "\n※ 公開後の追加です。管理画面の「シフト作成」に承認待ちとして出るので、「承認」か「見送り」を押してください。" : ""}`);
       }
       return { wish: w, added };
     }
