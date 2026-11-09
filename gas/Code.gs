@@ -14,7 +14,7 @@
  *   4. デプロイ → 新しいデプロイ → ウェブアプリ（実行ユーザー: 自分 / アクセス: 全員）
  */
 
-const VERSION = "2026-11-07.1";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
+const VERSION = "2026-11-09.1";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
 const TZ = "Asia/Tokyo";
 const PROP = PropertiesService.getScriptProperties();
 
@@ -43,7 +43,7 @@ const SHEETS = {
   staff:     ["id", "name", "short", "emp", "order", "active", "userId", "note", "createdAt", "pin", "wage", "rate", "drinkOn"],
   shifts:    ["month", "status", "publishedAt", "cells"],
   wishes:    ["month", "staffId", "days", "memo", "updatedAt"],
-  timecards: ["month", "staffId", "days"],
+  timecards: ["month", "staffId", "days", "edits"],   // edits＝修正履歴（2026-11-09 追加）
   admins:    ["userId", "name", "addedAt"],
   devices:   ["id", "name", "key", "createdAt", "lastSeen"],
   log:       ["at", "userId", "action", "detail"],
@@ -51,7 +51,7 @@ const SHEETS = {
   payroll:   ["month", "fixed", "variable", "total", "hours", "salesTotal", "basis", "updatedAt", "detail"],
   kstyle:    ["month", "data", "updatedAt"]   // 旧表 K-style（R8）の勤務時間の写し（hoursJob が1時間ごとに書く）
 };
-const JSON_COLS = { settings: ["value"], shifts: ["cells"], wishes: ["days"], timecards: ["days"], payroll: ["detail"], kstyle: ["data"] };
+const JSON_COLS = { settings: ["value"], shifts: ["cells"], wishes: ["days"], timecards: ["days", "edits"], payroll: ["detail"], kstyle: ["data"] };
 
 /* ============================================================
    HTTP 入口
