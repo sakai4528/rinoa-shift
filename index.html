@@ -769,7 +769,8 @@ function vSettings(){
 function go(){ render(); }
 function setMonth(n){ state.month=addMonth(state.month,n); state.selDay=null; state.sheetDay=null; state.lineText=null; go(); }
 function writeCells(mut){ const sh={...Store.shiftOf(state.month)}; sh.cells={...sh.cells}; mut(sh.cells); Store.setShiftLocal(sh); }
-async function busy(fn){ if(state.busy) return; state.busy=true; go(); try{ await fn(); }catch(e){ toast(errMsg(e)); } state.busy=false; go(); }
+async function busy(fn){ if(state.busy) return; state.busy=true; app.querySelectorAll("button").forEach(b=>b.disabled=true);   // 描き直すと入力中の値が消えるので、ボタンを止めるだけにする
+  try{ await fn(); }catch(e){ toast(errMsg(e)); } state.busy=false; go(); }
 function errMsg(e){ const m=String(e&&e.message||e); return ({closed:"受付は締め切られています",forbidden:"この操作は管理者のみです",not_registered:"先に名前を登録してください",already_in:"すでに出勤しています",not_in:"出勤が押されていません",bad_pin:"暗証番号が違います",bad_pin_format:"暗証番号は4〜6桁の数字にしてください",phone_punch_disabled:"出勤・退勤は店内のiPadで押してください",pin_not_set:"先に暗証番号を設定してください",bad_staff:"スタッフが見つかりません",no_record:"その日の打刻がありません",text_required:"内容を書いてください",undo_expired:"取り消せるのは打刻から15分以内です",not_out:"退勤はまだ押されていません",already_out:"退勤済みのため取り消せません",bad_wage:"時給が正しくありません",bad_rate:"歩合は0〜100%で入れてください",bad_date:"日にちを入れてください",future_date:"先の日付には入れられません",too_old:"古い日付の分は経営者に入れてもらってください",bad_kind:"種類を選んでください",bad_price:"値段を入れてください",bad_qty:"本数が正しくありません",bad_bottle:"記録が見つかりません",bottle_locked:"確認済みの記録は経営者に直してもらってください",no_token:"まだLINEの鍵が入っていません"})[m]||("エラー："+m); }
 
 app.addEventListener("click", async e=>{
