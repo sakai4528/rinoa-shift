@@ -14,7 +14,7 @@
  *   4. デプロイ → 新しいデプロイ → ウェブアプリ（実行ユーザー: 自分 / アクセス: 全員）
  */
 
-const VERSION = "2026-11-10.3";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
+const VERSION = "2026-11-10.4";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
 const TZ = "Asia/Tokyo";
 const PROP = PropertiesService.getScriptProperties();
 
@@ -493,9 +493,9 @@ function computePay_(month) {
     const salesTotal = mine.reduce((t, b) => t + b.price * b.qty, 0);
     const douhanPay = monthly ? 0 : Math.round(wage * douhanH * douhan);
     const wagePay = monthly ? monthly : Math.round(wage * mins / 60 + wage * prem * night / 60) + douhanPay;
-    const drinkPay = drinks * drinkBack;
+    const drinkPay = monthly ? 0 : drinks * drinkBack;   // 月給の人は月給だけ（ドリンクバック・歩合はつけない）
     const salesNet = Math.round(salesTotal / (1 + tax));
-    const commission = Math.round(salesNet * rate);
+    const commission = monthly ? 0 : Math.round(salesNet * rate);
     return { staffId: s.id, name: s.name, days, hours: Math.round(mins / 6) / 10, nightHours: Math.round(night / 6) / 10, planHours: Math.round(planMins / 6) / 10,
       wage, monthly, rate, wagePay, douhan, douhanPay, drinks, drinkPay, salesTotal, salesNet, bottles: mine.reduce((t, b) => t + b.qty, 0), commission, total: wagePay + drinkPay + commission };
   }).filter(r => r.days || r.salesTotal || r.drinks);
