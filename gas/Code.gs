@@ -14,7 +14,7 @@
  *   4. デプロイ → 新しいデプロイ → ウェブアプリ（実行ユーザー: 自分 / アクセス: 全員）
  */
 
-const VERSION = "2026-11-09.1";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
+const VERSION = "2026-11-10.1";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
 const TZ = "Asia/Tokyo";
 const PROP = PropertiesService.getScriptProperties();
 
@@ -40,7 +40,7 @@ const DAY_START_HOUR = 6;   // 朝6時までは前の日の営業として扱う
 
 const SHEETS = {
   settings:  ["key", "value"],
-  staff:     ["id", "name", "short", "emp", "order", "active", "userId", "note", "createdAt", "pin", "wage", "rate", "drinkOn"],
+  staff:     ["id", "name", "short", "emp", "order", "active", "userId", "note", "createdAt", "pin", "wage", "rate", "drinkOn", "autoOk"],   // autoOk＝公開後に足した日も承認なしでシフトに載る人
   shifts:    ["month", "status", "publishedAt", "cells"],
   wishes:    ["month", "staffId", "days", "memo", "updatedAt"],
   timecards: ["month", "staffId", "days", "edits"],   // edits＝修正履歴（2026-11-09 追加）
@@ -176,16 +176,24 @@ function handle_(action, data, auth) {
       }
       const w = { month, staffId: sid, days, memo, updatedAt: nowStr_() };
       upsert_("wishes", ["month", "staffId"], w);
+      let autoShift = null;
+      if (!isAdmin && added.length && isTrue_((staff.find(s => s.id === sid) || {}).autoOk)) {   // 承認なしの人（ママ）は、公開後に足した日もすぐシフトに載せる
+        const sh = readAll_("shifts").find(r => r.month === month);
+        if (sh && sh.status === "published") {
+          const cells = Object.assign({}, sh.cells || {});
+          if (applyAutoOk_(month, cells, staff, sh.publishedAt)) { autoShift = Object.assign({}, sh, { cells }); upsert_("shifts", ["month"], autoShift); }
+        }
+      }
       log_(auth, "saveWish", month + " " + sid + (added.length ? " +" + added.sort((a, b) => a - b).join(",") : ""));
       if (settings.notifyWish && !isAdmin) {
         const who = staff.find(s => s.id === sid);
         const m = +month.slice(5);
         const list = added.sort((a, b) => a - b).map(d => m + "/" + d + (days[d].t === "p" ? `(${days[d].from}〜${days[d].to})` : "")).join("、");
         const shNow = readAll_("shifts").find(r => r.month === month);
-        const afterPub = shNow && shNow.status === "published" && added.length;
+        const afterPub = shNow && shNow.status === "published" && added.length && !autoShift;
         pushTo_(admins.map(a => a.userId), `【${settings.name}】${who ? who.name : ""}さんが${m}月の希望を${prev ? "追加" : "提出"}しました。${list ? "\n入れる日：" + list : ""}${memo !== String((prev && prev.memo) || "") ? "\n連絡事項：" + memo.split("\n").pop() : ""}${afterPub ? "\n※ 公開後の追加です。管理画面の「シフト作成」に承認待ちとして出るので、「承認」か「見送り」を押してください。" : ""}`);
       }
-      return { wish: w, added };
+      return autoShift ? { wish: w, added, shift: autoShift } : { wish: w, added };
     }
 
     case "punch": {
@@ -258,6 +266,7 @@ function handle_(action, data, auth) {
       if (s.wage !== undefined) { const w = Math.round(+s.wage || 0); if (w < 0 || w > 100000) throw new Error("bad_wage"); row.wage = w; }
       if (s.rate !== undefined) { const r = +s.rate || 0; if (r < 0 || r > 1) throw new Error("bad_rate"); row.rate = r; }
       if (s.drinkOn !== undefined) row.drinkOn = !!s.drinkOn;
+      if (s.autoOk !== undefined) row.autoOk = !!s.autoOk;
       upsert_("staff", ["id"], row);
       log_(auth, "upsertStaff", row.name);
       return { staff: readAll_("staff").map(x => publicStaff_(x, true)) };
@@ -283,6 +292,7 @@ function handle_(action, data, auth) {
         const url = PROP.getProperty("LIFF_URL") || "";
         pushTo_(ids, `【${settings.name}】${+month.slice(5)}月のシフトを公開しました。\n「シフト表」タブで確認してください。${url ? "\n" + url : ""}`);
       }
+      if (doc.status === "published") applyAutoOk_(month, doc.cells, staff, doc.publishedAt);   // 古い画面から保存しても、ママが足した日は消さない（外すときは「休」に）
       upsert_("shifts", ["month"], doc);
       log_(auth, "saveShift", month + " " + doc.status);
       return { shift: doc };
@@ -925,7 +935,7 @@ function publicSettings_(s) { const o = Object.assign({}, s); delete o.pin; retu
 function publicStaff_(s, full) {
   const o = { id: s.id, name: s.name, short: s.short || "", emp: s.emp || "", order: +s.order || 99, active: s.active !== false && s.active !== "FALSE", linked: !!s.userId, hasPin: !!s.pin };
   o.hasRate = (+s.rate || 0) > 0;
-  if (full) { o.note = s.note || ""; o.userId = s.userId || ""; o.wage = +s.wage || 0; o.rate = +s.rate || 0; o.drinkOn = isTrue_(s.drinkOn); }   // drinkOn＝ドリンクバックを見せる人（経営者が設定）
+  if (full) { o.note = s.note || ""; o.userId = s.userId || ""; o.wage = +s.wage || 0; o.rate = +s.rate || 0; o.drinkOn = isTrue_(s.drinkOn); o.autoOk = isTrue_(s.autoOk); }   // drinkOn＝ドリンクバックを見せる人（経営者が設定）
   return o;
 }
 function sanitizeSettings_(s) {
@@ -1137,5 +1147,22 @@ function nowStr_() { return fmt_(new Date(), "yyyy-MM-dd'T'HH:mm:ss"); }
 // 営業日（朝6時までは前の日）
 function bizDate_(d) { return fmt_(new Date((d || new Date()).getTime() - DAY_START_HOUR * 3600000), "yyyy-MM-dd"); }
 function addDays_(ymd, n) { const p = ymd.split("-").map(Number); return fmt_(new Date(p[0], p[1] - 1, p[2] + n, 12), "yyyy-MM-dd"); }
+// 承認なしの人が公開後に足した「入れる日」で、まだマスが空いているものを出勤にする。足したら true
+function applyAutoOk_(month, cells, staff, publishedAt) {
+  const pubAt = String(publishedAt || ""), autos = staff.filter(s => isTrue_(s.autoOk) && s.active !== false);
+  if (!autos.length || !pubAt) return false;
+  const settings = getSettings_(), wishes = readAll_("wishes").filter(r => r.month === month);
+  let changed = false;
+  autos.forEach(s => {
+    const w = wishes.find(r => r.staffId === s.id); if (!w) return;
+    Object.keys(w.days || {}).forEach(d => {
+      const v = w.days[d], k = d + "_" + s.id;
+      if (!v || !(v.t === "o" || v.t === "p") || !v.at || String(v.at) <= pubAt.slice(0, 16) || cells[k]) return;
+      cells[k] = (v.t === "p" && v.from && v.to && !(v.from === settings.openStart && v.to === settings.openEnd)) ? "C:" + v.from + "-" + v.to : "ON";
+      changed = true;
+    });
+  });
+  return changed;
+}
 function isTrue_(v) { return v === true || v === "TRUE" || v === "true"; }
 function ym_(s) { if (!/^\d{4}-\d{2}$/.test(String(s || ""))) throw new Error("bad_month"); return String(s); }

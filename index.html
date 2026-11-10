@@ -225,7 +225,7 @@ const CONFIG = {
 /* ============================================================
    共通
    ============================================================ */
-const SERVER_VERSION="2026-11-09.1";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
+const SERVER_VERSION="2026-11-10.1";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
 const TC_MODES={nearest:"四捨五入（15分未満は切り捨て、15分以上は30分扱い）",floor:"すべて切り捨て",ceil:"すべて切り上げ",favor:"出勤は切り上げ・退勤は切り捨て"};
 const WD = ["日","月","火","水","木","金","土"];
 const pad = n => String(n).padStart(2,"0");
@@ -347,7 +347,7 @@ const Store = {
   setMonthPart(ym,part,val){ this.months[ym]=this.months[ym]||{shift:null,wishes:{},timecards:{}}; this.months[ym][part]=val; },
   /* --- 書き込み --- */
   async register(name){ const j=await this.api("register",{name}); this.me=j.me; this.staff=j.staff; this.emit(); },
-  async saveWish(w){ const j=await this.api("saveWish",w); const ws={...this.wishesOf(w.month)}; ws[j.wish.staffId]=j.wish; this.setMonthPart(w.month,"wishes",ws); this.emit(); },
+  async saveWish(w){ const j=await this.api("saveWish",w); const ws={...this.wishesOf(w.month)}; ws[j.wish.staffId]=j.wish; this.setMonthPart(w.month,"wishes",ws); if(j.shift) this.setMonthPart(w.month,"shift",j.shift); this.emit(); },
   async requestFix(month,day,text){ const j=await this.api("requestFix",{month,day,text}); const tc={...this.tcOf(month)}; tc[j.timecard.staffId]=j.timecard; this.setMonthPart(month,"timecards",tc); this.emit(); },
   async setPin(pin){ const j=await this.api("setPin",{pin}); this.me=j.me; this.emit(); },
   async resetPin(staffId,pin){ const j=await this.api("resetPin",{staffId,pin:pin||""}); this.staff=j.staff; this.emit(); },
@@ -712,7 +712,7 @@ function vWishList(){
 function vStaffAdmin(){
   const list=[...Store.staff].sort((a,b)=>(a.order??99)-(b.order??99)), e=state.editStaff;
   return `<section class="card"><h2>スタッフ<small>${list.length}名</small></h2>
-  <div class="people" style="margin-top:8px">${list.map(s=>`<div class="stf ${s.active===false?"inactive":""}"><div><div class="nm">${esc(s.name)} <span class="pill">${esc(shortName(s))}</span> <span class="note">${s.emp?esc(s.emp):""}</span></div><div class="mt">表示順 ${s.order??"-"}　${s.wage?`時給 ${yen(s.wage)}　`:'<span style="color:var(--warn)">時給 未入力</span>　'}${s.rate?`ボトルバック ${pct(s.rate)}%　`:""}${s.drinkOn?"ドリンクバックあり　":""}${s.linked||s.userId?"LINE連携済み（通知が届きます）":"LINE未連携（本人がLINEから開いて登録すると連携されます）"}${s.active===false?"　／ <b>非表示（管理のみ）</b>":""}</div></div><div class="row"><button class="btn ghost sm" data-act="editStaff" data-id="${esc(s.id)}">編集</button><button class="btn ghost sm" data-act="viewAs" data-id="${esc(s.id)}">代理入力</button></div></div>`).join("")||'<div class="note">まだ登録がありません。</div>'}</div>
+  <div class="people" style="margin-top:8px">${list.map(s=>`<div class="stf ${s.active===false?"inactive":""}"><div><div class="nm">${esc(s.name)} <span class="pill">${esc(shortName(s))}</span> <span class="note">${s.emp?esc(s.emp):""}</span></div><div class="mt">表示順 ${s.order??"-"}　${s.wage?`時給 ${yen(s.wage)}　`:'<span style="color:var(--warn)">時給 未入力</span>　'}${s.rate?`ボトルバック ${pct(s.rate)}%　`:""}${s.drinkOn?"ドリンクバックあり　":""}${s.autoOk?"承認なしで載る　":""}${s.linked||s.userId?"LINE連携済み（通知が届きます）":"LINE未連携（本人がLINEから開いて登録すると連携されます）"}${s.active===false?"　／ <b>非表示（管理のみ）</b>":""}</div></div><div class="row"><button class="btn ghost sm" data-act="editStaff" data-id="${esc(s.id)}">編集</button><button class="btn ghost sm" data-act="viewAs" data-id="${esc(s.id)}">代理入力</button></div></div>`).join("")||'<div class="note">まだ登録がありません。</div>'}</div>
   <h3 style="margin:16px 0 8px;font-size:14px">${e?.id?"スタッフを編集":"スタッフを追加（経営者側で登録）"}</h3>
   <form class="f" id="stf"><input type="hidden" name="id" value="${esc(e?.id||"")}">
     <div class="kv"><label>名前<input type="text" name="name" id="sName" required maxlength="20" value="${esc(e?.name||"")}"></label><label>カレンダー表示名<span class="h">（2〜3文字）</span><input type="text" name="short" id="sShort" maxlength="4" value="${esc(e?.short||"")}" placeholder="例：田中"></label></div>
@@ -721,6 +721,7 @@ function vStaffAdmin(){
     <label class="inline"><input type="checkbox" name="bottleOn" id="sBottleOn" ${e?.rate?"checked":""} onchange="document.getElementById('sRateBox').style.display=this.checked?'':'none'">この人にボトルバックを見せる<span class="h">（「ボトル」のタブが出て、ボトル売上の歩合がお給料に入ります）</span></label>
     <label id="sRateBox" style="${e?.rate?"":"display:none"}">ボトルバックの歩合（%）<span class="h">（シャンパン・ワインの売価の何%）</span><input type="number" name="rate" id="sRate" inputmode="decimal" min="0" max="100" step="0.5" value="${e?.rate?esc(pct(e.rate)):""}" placeholder="例：10"></label>
     <label class="inline"><input type="checkbox" name="drinkOn" id="sDrinkOn" ${e?.drinkOn?"checked":""}>この人にドリンクバックを見せる<span class="h">（退勤のとき杯数を入れる欄が出ます。オフの人には見えません）</span></label>
+    <label class="inline"><input type="checkbox" name="autoOk" id="sAutoOk" ${e?.autoOk?"checked":""}>シフト公開後に足した日も、承認なしでシフト表に載せる<span class="h">（ママなど。オフの人は「承認待ち」になります）</span></label>
     <label class="inline"><input type="checkbox" name="active" id="sActive" ${e?.active===false?"":"checked"}>シフト表・iPadの打刻一覧に表示する<span class="h">（管理だけで出勤しない人はオフ）</span></label>
     <label>メモ<span class="h">（経営者のみ閲覧）</span><input type="text" name="note" id="sNote" maxlength="100" value="${esc(e?.note||"")}"></label>
     ${e?.id?`<label>iPad暗証番号<span class="h">（${e.hasPin?"設定済み":"未設定"}。本人が設定できないときだけ、ここで4〜6桁を入れて保存）</span><input type="text" name="newpin" id="sPin" inputmode="numeric" maxlength="6" placeholder="空欄なら変更しない"></label>`:""}
@@ -860,7 +861,7 @@ app.addEventListener("submit", async e=>{
   if(fid==="pinf"){ await busy(async()=>{ await Store.adminLogin(String(fd.get("pin")||"")); state.role="admin"; toast("管理者として登録しました"); }); }
   if(fid==="stf"){
     const id=fd.get("id")||("s_"+Date.now().toString(36)); const prev=Store.staff.find(s=>s.id===id)||{};
-    const s={id,name:(fd.get("name")||"").trim(),short:(fd.get("short")||"").trim(),emp:fd.get("emp")||"",order:+fd.get("order")||99,active:!!fd.get("active"),note:fd.get("note")||"",wage:Math.round(+fd.get("wage")||0),rate:fd.get("bottleOn")?(+fd.get("rate")||0)/100:0,drinkOn:!!fd.get("drinkOn")};
+    const s={id,name:(fd.get("name")||"").trim(),short:(fd.get("short")||"").trim(),emp:fd.get("emp")||"",order:+fd.get("order")||99,active:!!fd.get("active"),note:fd.get("note")||"",wage:Math.round(+fd.get("wage")||0),rate:fd.get("bottleOn")?(+fd.get("rate")||0)/100:0,drinkOn:!!fd.get("drinkOn"),autoOk:!!fd.get("autoOk")};
     const newpin=String(fd.get("newpin")||"").trim();
     if(!s.name) return;
     if(fd.get("bottleOn")&&!s.rate){ toast("ボトルバックの歩合（%）を入れてください","ng"); $("#sRate")?.focus(); return; }
