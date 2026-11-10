@@ -225,7 +225,7 @@ const CONFIG = {
 /* ============================================================
    共通
    ============================================================ */
-const SERVER_VERSION="2026-11-10.1";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
+const SERVER_VERSION="2026-11-10.2";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
 const TC_MODES={nearest:"四捨五入（15分未満は切り捨て、15分以上は30分扱い）",floor:"すべて切り捨て",ceil:"すべて切り上げ",favor:"出勤は切り上げ・退勤は切り捨て"};
 const WD = ["日","月","火","水","木","金","土"];
 const pad = n => String(n).padStart(2,"0");
@@ -487,7 +487,7 @@ function vDayPeople(ym,d,me){
 function vWish(m){
   // 締切なし：当日まで出せる。一度送った日はスタッフは変えられない（変更は かよさんに連絡 → 管理者が代理入力で直す）
   const ym=state.wishMonth, {y,m:mo}=parseYM(ym), S=Store.settings, adm=Store.isAdmin, saved=Store.wishesOf(ym)[m.id];
-  const sentDays=saved?.days||{}, locked=d=>!adm&&(sentDays[d]?.t==="o"||sentDays[d]?.t==="p"), past=d=>!adm&&`${ym}-${pad(d)}`<BIZ_TODAY;
+  const sentDays=saved?.days||{}, locked=d=>!adm&&!m.autoOk&&(sentDays[d]?.t==="o"||sentDays[d]?.t==="p"), past=d=>!adm&&`${ym}-${pad(d)}`<BIZ_TODAY;
   const editable=adm||ym>=BIZ_YM;
   if(!state.draftWish||state.draftWish.month!==ym||state.draftWish.staffId!==m.id){ state.draftWish={month:ym,staffId:m.id,days:{...sentDays},memo:adm?(saved?.memo||""):""}; state.draftDirty=false; }
   const W=state.draftWish, n=daysIn(y,mo), first=dow(y,mo,1), cells=[];
@@ -721,7 +721,7 @@ function vStaffAdmin(){
     <label class="inline"><input type="checkbox" name="bottleOn" id="sBottleOn" ${e?.rate?"checked":""} onchange="document.getElementById('sRateBox').style.display=this.checked?'':'none'">この人にボトルバックを見せる<span class="h">（「ボトル」のタブが出て、ボトル売上の歩合がお給料に入ります）</span></label>
     <label id="sRateBox" style="${e?.rate?"":"display:none"}">ボトルバックの歩合（%）<span class="h">（シャンパン・ワインの売価の何%）</span><input type="number" name="rate" id="sRate" inputmode="decimal" min="0" max="100" step="0.5" value="${e?.rate?esc(pct(e.rate)):""}" placeholder="例：10"></label>
     <label class="inline"><input type="checkbox" name="drinkOn" id="sDrinkOn" ${e?.drinkOn?"checked":""}>この人にドリンクバックを見せる<span class="h">（退勤のとき杯数を入れる欄が出ます。オフの人には見えません）</span></label>
-    <label class="inline"><input type="checkbox" name="autoOk" id="sAutoOk" ${e?.autoOk?"checked":""}>シフト公開後に足した日も、承認なしでシフト表に載せる<span class="h">（ママなど。オフの人は「承認待ち」になります）</span></label>
+    <label class="inline"><input type="checkbox" name="autoOk" id="sAutoOk" ${e?.autoOk?"checked":""}>自分で出勤日を足したり休みにしたりできる（承認なしでシフト表に載る）<span class="h">（ママなど。オフの人は、送った日は変えられず、公開後に足した日は「承認待ち」になります）</span></label>
     <label class="inline"><input type="checkbox" name="active" id="sActive" ${e?.active===false?"":"checked"}>シフト表・iPadの打刻一覧に表示する<span class="h">（管理だけで出勤しない人はオフ）</span></label>
     <label>メモ<span class="h">（経営者のみ閲覧）</span><input type="text" name="note" id="sNote" maxlength="100" value="${esc(e?.note||"")}"></label>
     ${e?.id?`<label>iPad暗証番号<span class="h">（${e.hasPin?"設定済み":"未設定"}。本人が設定できないときだけ、ここで4〜6桁を入れて保存）</span><input type="text" name="newpin" id="sPin" inputmode="numeric" maxlength="6" placeholder="空欄なら変更しない"></label>`:""}
@@ -807,7 +807,7 @@ app.addEventListener("click", async e=>{
     case "dayAll": { const d=state.sheetDay, v=t.dataset.v; writeCells(c=>{ activeStaff().forEach(s=>{ if(v) c[`${d}_${s.id}`]=v; else delete c[`${d}_${s.id}`]; }); }); break; }
     case "viewAs": state.proxyId=t.dataset.id; state.role="staff"; state.tab="wish"; state.draftWish=null; go(); toast(`${Store.staff.find(s=>s.id===t.dataset.id)?.name||""}さんとして入力中（代理）`); break;
     case "wishDay": { const d=+t.dataset.d, W=state.draftWish, cur=W.days[d]?.t; if(cur!=="o"&&cur!=="p") W.days[d]={t:"o"}; else if(cur==="o") W.days[d]={t:"p",from:Store.settings.openStart||"10:00",to:Store.settings.openEnd||"15:00"}; else delete W.days[d]; state.selDay=d; state.draftDirty=true; go(); break; }
-    case "sendWish": { const W=state.draftWish; W.memo=$("#wMemo")?.value||""; if(!Store.isAdmin&&!confirm("送信した日は、あとから変えたり消したりできません（変更は かよさんに連絡）。送信しますか？")) break;
+    case "sendWish": { const W=state.draftWish; W.memo=$("#wMemo")?.value||""; if(!Store.isAdmin&&!me()?.autoOk&&!confirm("送信した日は、あとから変えたり消したりできません（変更は かよさんに連絡）。送信しますか？")) break;
       await busy(async()=>{ await Store.saveWish({month:W.month,staffId:W.staffId,days:W.days,memo:W.memo}); state.draftWish=null; state.draftDirty=false; toast("希望を送信しました"); }); break; }
     case "wishLocked": state.selDay=+t.dataset.d; go(); toast("送信済みの日です。変更は かよさんに連絡してください"); break;
     case "status": await busy(async()=>{ const sh={...Store.shiftOf(state.month)}; sh.cells={...sh.cells}; sh.status=t.dataset.v; await Store.saveShiftNow(sh); toast({published:Store.settings.notifyPublish===true?"シフトを公開し、スタッフにLINEで通知しました":"シフトを公開しました",editing:"受付を締め切りました",collecting:"希望受付を再開しました"}[sh.status]); }); break;

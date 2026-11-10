@@ -14,7 +14,7 @@
  *   4. デプロイ → 新しいデプロイ → ウェブアプリ（実行ユーザー: 自分 / アクセス: 全員）
  */
 
-const VERSION = "2026-11-10.1";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
+const VERSION = "2026-11-10.2";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
 const TZ = "Asia/Tokyo";
 const PROP = PropertiesService.getScriptProperties();
 
@@ -155,12 +155,20 @@ function handle_(action, data, auth) {
       // 2026-11-05 やっさん：締切なし（当日まで出せる）。一度出した日はスタッフは変えられない（変更は管理者が直す）
       const prev = readAll_("wishes").find(r => r.month === month && r.staffId === sid);
       const inDays = data.days || {};
-      let days = inDays, memo = String(data.memo || "").slice(0, 300), added = [];
+      let days = inDays, memo = String(data.memo || "").slice(0, 300), added = [], removed = [];
+      const free = !isAdmin && isTrue_((staff.find(s => s.id === sid) || {}).autoOk);   // ママ：送った日も自分で変えられる・休みにできる
       if (!isAdmin) {
         const old = (prev && prev.days) || {}, today = bizDate_();
         const isOn = v => v && (v.t === "o" || v.t === "p");
         days = {};
         Object.keys(old).forEach(d => { days[d] = old[d]; });   // 出した日はそのまま（消せない・変えられない）
+        if (free) Object.keys(old).forEach(d => {   // ママだけ：今日から先の日は、取り消し・時間の変更ができる
+          if (month + "-" + ("0" + d).slice(-2) < today || !isOn(old[d])) return;
+          const v = inDays[d];
+          if (!isOn(v)) { delete days[d]; removed.push(+d); return; }
+          const nv = v.t === "p" ? { t: "p", from: String(v.from || ""), to: String(v.to || "") } : { t: "o" };
+          if (nv.t !== old[d].t || (nv.t === "p" && (nv.from !== old[d].from || nv.to !== old[d].to))) { nv.at = nowStr_().slice(0, 16); days[d] = nv; added.push(+d); }
+        });
         Object.keys(inDays).forEach(d => {
           if (old[d] || !isOn(inDays[d])) return;
           if (month + "-" + ("0" + d).slice(-2) < today) return;  // 過ぎた日は足せない
@@ -172,16 +180,18 @@ function handle_(action, data, auth) {
         const oldMemo = String((prev && prev.memo) || "");
         const more = memo.trim();
         memo = (oldMemo && more ? oldMemo + "\n" + more : (oldMemo || more)).slice(0, 600);   // 連絡事項は書き足すだけ
-        if (prev && !added.length && memo === oldMemo) return { wish: prev, added: [] };
+        if (prev && !added.length && !removed.length && memo === oldMemo) return { wish: prev, added: [] };
       }
       const w = { month, staffId: sid, days, memo, updatedAt: nowStr_() };
       upsert_("wishes", ["month", "staffId"], w);
       let autoShift = null;
-      if (!isAdmin && added.length && isTrue_((staff.find(s => s.id === sid) || {}).autoOk)) {   // 承認なしの人（ママ）は、公開後に足した日もすぐシフトに載せる
+      if (free && (added.length || removed.length)) {   // ママは、公開後に足した日・変えた日・休みにした日を、すぐシフトに反映する
         const sh = readAll_("shifts").find(r => r.month === month);
         if (sh && sh.status === "published") {
           const cells = Object.assign({}, sh.cells || {});
-          if (applyAutoOk_(month, cells, staff, sh.publishedAt)) { autoShift = Object.assign({}, sh, { cells }); upsert_("shifts", ["month"], autoShift); }
+          added.forEach(d => { cells[d + "_" + sid] = autoCell_(days[d], settings); });
+          removed.forEach(d => { cells[d + "_" + sid] = "OFF"; });
+          autoShift = Object.assign({}, sh, { cells }); upsert_("shifts", ["month"], autoShift);
         }
       }
       log_(auth, "saveWish", month + " " + sid + (added.length ? " +" + added.sort((a, b) => a - b).join(",") : ""));
@@ -189,9 +199,10 @@ function handle_(action, data, auth) {
         const who = staff.find(s => s.id === sid);
         const m = +month.slice(5);
         const list = added.sort((a, b) => a - b).map(d => m + "/" + d + (days[d].t === "p" ? `(${days[d].from}〜${days[d].to})` : "")).join("、");
+        const offList = removed.sort((a, b) => a - b).map(d => m + "/" + d).join("、");
         const shNow = readAll_("shifts").find(r => r.month === month);
         const afterPub = shNow && shNow.status === "published" && added.length && !autoShift;
-        pushTo_(admins.map(a => a.userId), `【${settings.name}】${who ? who.name : ""}さんが${m}月の希望を${prev ? "追加" : "提出"}しました。${list ? "\n入れる日：" + list : ""}${memo !== String((prev && prev.memo) || "") ? "\n連絡事項：" + memo.split("\n").pop() : ""}${afterPub ? "\n※ 公開後の追加です。管理画面の「シフト作成」に承認待ちとして出るので、「承認」か「見送り」を押してください。" : ""}`);
+        pushTo_(admins.map(a => a.userId), `【${settings.name}】${who ? who.name : ""}さんが${m}月の希望を${removed.length ? "変更" : prev ? "追加" : "提出"}しました。${list ? "\n入れる日：" + list : ""}${offList ? "\n休みにした日：" + offList : ""}${memo !== String((prev && prev.memo) || "") ? "\n連絡事項：" + memo.split("\n").pop() : ""}${afterPub ? "\n※ 公開後の追加です。管理画面の「シフト作成」に承認待ちとして出るので、「承認」か「見送り」を押してください。" : ""}`);
       }
       return autoShift ? { wish: w, added, shift: autoShift } : { wish: w, added };
     }
@@ -1158,11 +1169,12 @@ function applyAutoOk_(month, cells, staff, publishedAt) {
     Object.keys(w.days || {}).forEach(d => {
       const v = w.days[d], k = d + "_" + s.id;
       if (!v || !(v.t === "o" || v.t === "p") || !v.at || String(v.at) <= pubAt.slice(0, 16) || cells[k]) return;
-      cells[k] = (v.t === "p" && v.from && v.to && !(v.from === settings.openStart && v.to === settings.openEnd)) ? "C:" + v.from + "-" + v.to : "ON";
+      cells[k] = autoCell_(v, settings);
       changed = true;
     });
   });
   return changed;
 }
+function autoCell_(v, settings) { return (v.t === "p" && v.from && v.to && !(v.from === settings.openStart && v.to === settings.openEnd)) ? "C:" + v.from + "-" + v.to : "ON"; }
 function isTrue_(v) { return v === true || v === "TRUE" || v === "true"; }
 function ym_(s) { if (!/^\d{4}-\d{2}$/.test(String(s || ""))) throw new Error("bad_month"); return String(s); }
