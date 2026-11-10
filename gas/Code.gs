@@ -14,7 +14,7 @@
  *   4. デプロイ → 新しいデプロイ → ウェブアプリ（実行ユーザー: 自分 / アクセス: 全員）
  */
 
-const VERSION = "2026-11-10.2";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
+const VERSION = "2026-11-10.3";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
 const TZ = "Asia/Tokyo";
 const PROP = PropertiesService.getScriptProperties();
 
@@ -40,7 +40,7 @@ const DAY_START_HOUR = 6;   // 朝6時までは前の日の営業として扱う
 
 const SHEETS = {
   settings:  ["key", "value"],
-  staff:     ["id", "name", "short", "emp", "order", "active", "userId", "note", "createdAt", "pin", "wage", "rate", "drinkOn", "autoOk"],   // autoOk＝公開後に足した日も承認なしでシフトに載る人
+  staff:     ["id", "name", "short", "emp", "order", "active", "userId", "note", "createdAt", "pin", "wage", "rate", "drinkOn", "autoOk", "monthly"],   // monthly＝月給（固定。入っている人は時給で計算しない）   // autoOk＝公開後に足した日も承認なしでシフトに載る人
   shifts:    ["month", "status", "publishedAt", "cells"],
   wishes:    ["month", "staffId", "days", "memo", "updatedAt"],
   timecards: ["month", "staffId", "days", "edits"],   // edits＝修正履歴（2026-11-09 追加）
@@ -278,6 +278,7 @@ function handle_(action, data, auth) {
       if (s.rate !== undefined) { const r = +s.rate || 0; if (r < 0 || r > 1) throw new Error("bad_rate"); row.rate = r; }
       if (s.drinkOn !== undefined) row.drinkOn = !!s.drinkOn;
       if (s.autoOk !== undefined) row.autoOk = !!s.autoOk;
+      if (s.monthly !== undefined) { const mo = Math.round(+s.monthly || 0); if (mo < 0 || mo > 10000000) throw new Error("bad_wage"); row.monthly = mo || ""; }
       upsert_("staff", ["id"], row);
       log_(auth, "upsertStaff", row.name);
       return { staff: readAll_("staff").map(x => publicStaff_(x, true)) };
@@ -487,20 +488,20 @@ function computePay_(month) {
       if (!w || !w.total) continue;
       days++; mins += w.total; night += w.night; if (plan) planMins += w.total;
     }
-    const wage = +s.wage || 0, rate = +s.rate || 0;
+    const wage = +s.wage || 0, rate = +s.rate || 0, monthly = +s.monthly || 0;   // 月給の人は、働いた時間に関係なく月給そのまま
     const mine = bottles.filter(b => b.staffId === s.id);
     const salesTotal = mine.reduce((t, b) => t + b.price * b.qty, 0);
-    const douhanPay = Math.round(wage * douhanH * douhan);
-    const wagePay = Math.round(wage * mins / 60 + wage * prem * night / 60) + douhanPay;
+    const douhanPay = monthly ? 0 : Math.round(wage * douhanH * douhan);
+    const wagePay = monthly ? monthly : Math.round(wage * mins / 60 + wage * prem * night / 60) + douhanPay;
     const drinkPay = drinks * drinkBack;
     const salesNet = Math.round(salesTotal / (1 + tax));
     const commission = Math.round(salesNet * rate);
     return { staffId: s.id, name: s.name, days, hours: Math.round(mins / 6) / 10, nightHours: Math.round(night / 6) / 10, planHours: Math.round(planMins / 6) / 10,
-      wage, rate, wagePay, douhan, douhanPay, drinks, drinkPay, salesTotal, salesNet, bottles: mine.reduce((t, b) => t + b.qty, 0), commission, total: wagePay + drinkPay + commission };
+      wage, monthly, rate, wagePay, douhan, douhanPay, drinks, drinkPay, salesTotal, salesNet, bottles: mine.reduce((t, b) => t + b.qty, 0), commission, total: wagePay + drinkPay + commission };
   }).filter(r => r.days || r.salesTotal || r.drinks);
   const sum = k => rows.reduce((t, r) => t + r[k], 0);
   return { month, staff: rows, fixed: sum("wagePay"), variable: sum("commission") + sum("drinkPay"), drinkPay: sum("drinkPay"), drinks: sum("drinks"), douhan: sum("douhan"), douhanPay: sum("douhanPay"), drinkBack, douhanHours: douhanH, total: sum("total"), hours: Math.round(sum("hours") * 10) / 10, salesTotal: sum("salesTotal"),
-    salesNet: sum("salesNet"), saleTax: tax, noWage: rows.filter(r => r.hours && !r.wage).map(r => r.name), nightPremium: prem, basis: "シフト表からの見込み（打刻があれば打刻、なければK-style（R8）の時間、なければ公開済みシフトの予定。同伴は時給1時間分・ドリンクは1杯" + drinkBack + "円）。freeeの給与とは別" };
+    salesNet: sum("salesNet"), saleTax: tax, noWage: rows.filter(r => r.hours && !r.wage && !r.monthly).map(r => r.name), nightPremium: prem, basis: "シフト表からの見込み（打刻があれば打刻、なければK-style（R8）の時間、なければ公開済みシフトの予定。同伴は時給1時間分・ドリンクは1杯" + drinkBack + "円）。freeeの給与とは別" };
 }
 // 経営ボード（rinoa-order）が読むシート。fixed＝時給の分（同伴を含む・固定費）、variable＝歩合とドリンクバックの分（変動費）
 function savePayroll_(month) {
@@ -589,7 +590,7 @@ function writeHoursMonth_(ss, month) {
     }
     const p = s.ksLabel ? {} : payOf(s.id);
     if (s.ksLabel) row.push(Math.round(real * 100) / 100, Math.round(real * 100) / 100, Object.keys(kd).length, "", Object.values(kdr).reduce((a, b) => a + b, 0) || "", "", "", "", "", "");
-    else row.push(Math.round(real * 100) / 100, p.hours || 0, p.days || 0, p.douhan || "", p.drinks || "", +s.wage || 0, p.wagePay || 0, p.drinkPay || 0, p.commission || 0, p.total || 0);
+    else row.push(Math.round(real * 100) / 100, p.hours || 0, p.days || 0, p.douhan || "", p.drinks || "", hourly_(s), p.wagePay || 0, p.drinkPay || 0, p.commission || 0, p.total || 0);
     for (let i = 0; i < RC; i++) { col.push("#000000"); nt.push(""); }
     vals.push(row); colors.push(col); notes.push(nt);
   });
@@ -642,12 +643,12 @@ function writeHoursYesterday_(ss) {
     const doc = tcs.find(t => t.staffId === s.id) || { days: {} }, x = hoursDay_(doc, cells, s, ymd, S, kstyleDays_(ks, s.id));
     if (!x) return;
     any++;
-    if (x.open) { vals.push([s.name, hoursClock_(x.rec.in, ymd), "", "", "", +s.wage || "", "", "退勤の打刻がありません"]); return; }
-    if (x.plan) { vals.push([s.name, "", "", "", "", +s.wage || "", "", "打刻がありません（シフトでは " + Math.round(x.h * 10) / 10 + " 時間の予定）"]); return; }
-    const pay = Math.round((+s.wage || 0) * x.h);
+    if (x.open) { vals.push([s.name, hoursClock_(x.rec.in, ymd), "", "", "", hourly_(s) || "", "", "退勤の打刻がありません"]); return; }
+    if (x.plan) { vals.push([s.name, "", "", "", "", hourly_(s) || "", "", "打刻がありません（シフトでは " + Math.round(x.h * 10) / 10 + " 時間の予定）"]); return; }
+    const pay = Math.round(hourly_(s) * x.h);
     totH += x.h; totPay += pay;
-    if (x.ks) { const dr = kstyleDrinks_(ks, s.id)[d]; vals.push([s.name, "", "", "", Math.round(x.h * 100) / 100, +s.wage || "", pay, "K-style（R8）から写した時間" + (dr ? "・ドリンク" + dr + "杯" : "")]); return; }
-    vals.push([s.name, hoursClock_(x.rec.in, ymd), hoursClock_(x.rec.out, ymd), +x.rec.brk || 0, Math.round(x.h * 100) / 100, +s.wage || "", pay, [extraText_(x.rec), x.rec.edited ? "経営者が修正" : ""].filter(Boolean).join("・")]);
+    if (x.ks) { const dr = kstyleDrinks_(ks, s.id)[d]; vals.push([s.name, "", "", "", Math.round(x.h * 100) / 100, hourly_(s) || "", pay, "K-style（R8）から写した時間" + (dr ? "・ドリンク" + dr + "杯" : "")]); return; }
+    vals.push([s.name, hoursClock_(x.rec.in, ymd), hoursClock_(x.rec.out, ymd), +x.rec.brk || 0, Math.round(x.h * 100) / 100, hourly_(s) || "", pay, [extraText_(x.rec), x.rec.edited ? "経営者が修正" : ""].filter(Boolean).join("・")]);
   });
   if (!any) vals.push(["この日の勤務はありません", "", "", "", "", "", "", ""]);
   vals.push(["合計", "", "", "", Math.round(totH * 100) / 100, "", totPay, ""]);
@@ -946,7 +947,7 @@ function publicSettings_(s) { const o = Object.assign({}, s); delete o.pin; retu
 function publicStaff_(s, full) {
   const o = { id: s.id, name: s.name, short: s.short || "", emp: s.emp || "", order: +s.order || 99, active: s.active !== false && s.active !== "FALSE", linked: !!s.userId, hasPin: !!s.pin };
   o.hasRate = (+s.rate || 0) > 0;
-  if (full) { o.note = s.note || ""; o.userId = s.userId || ""; o.wage = +s.wage || 0; o.rate = +s.rate || 0; o.drinkOn = isTrue_(s.drinkOn); o.autoOk = isTrue_(s.autoOk); }   // drinkOn＝ドリンクバックを見せる人（経営者が設定）
+  if (full) { o.note = s.note || ""; o.userId = s.userId || ""; o.wage = +s.wage || 0; o.rate = +s.rate || 0; o.drinkOn = isTrue_(s.drinkOn); o.autoOk = isTrue_(s.autoOk); o.monthly = +s.monthly || 0; }   // drinkOn＝ドリンクバックを見せる人（経営者が設定）
   return o;
 }
 function sanitizeSettings_(s) {
@@ -1176,5 +1177,6 @@ function applyAutoOk_(month, cells, staff, publishedAt) {
   return changed;
 }
 function autoCell_(v, settings) { return (v.t === "p" && v.from && v.to && !(v.from === settings.openStart && v.to === settings.openEnd)) ? "C:" + v.from + "-" + v.to : "ON"; }
+function hourly_(s) { return +s.monthly ? 0 : (+s.wage || 0); }   // 勤務時間表の時給の欄（月給の人は出さない）
 function isTrue_(v) { return v === true || v === "TRUE" || v === "true"; }
 function ym_(s) { if (!/^\d{4}-\d{2}$/.test(String(s || ""))) throw new Error("bad_month"); return String(s); }
