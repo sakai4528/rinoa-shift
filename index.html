@@ -225,7 +225,7 @@ const CONFIG = {
 /* ============================================================
    共通
    ============================================================ */
-const SERVER_VERSION="2026-11-12.2";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
+const SERVER_VERSION="2026-11-12.3";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
 const TC_MODES={nearest:"四捨五入（15分未満は切り捨て、15分以上は30分扱い）",floor:"すべて切り捨て",ceil:"すべて切り上げ",favor:"出勤は切り上げ・退勤は切り捨て"};
 const WD = ["日","月","火","水","木","金","土"];
 const pad = n => String(n).padStart(2,"0");
@@ -336,9 +336,9 @@ const Store = {
       this.profile=j.profile; this.serverVersion=j.version||""; this.devices=j.devices||[]; this.settings={...this.settings,...j.settings}; this.staff=j.staff; this.me=j.me; this.isAdmin=j.isAdmin; this.liffUrl=j.liffUrl||"";
       Object.assign(this.months,j.months); this.ready=true; this.error=null; this.lastFetch=Date.now();
     }catch(e){ this.error="データを読み込めませんでした。電波の良いところでもう一度開いてください。（"+(e.message||e)+"）"; }
-    this.emit();
+    this.emit(); autoFresh();
   },
-  async refresh(){ if(!this.ready) return this.bootstrap(); try{ const j=await this.api("getMonths",{months:Object.keys(this.months).concat(this.wantMonths())}); Object.assign(this.months,j.months); const b=await this.api("bootstrap",{months:[]}); this.settings={...this.settings,...b.settings}; this.staff=b.staff; this.me=b.me; this.isAdmin=b.isAdmin; this.lastFetch=Date.now(); }catch(e){} this.emit(); },
+  async refresh(){ if(!this.ready) return this.bootstrap(); try{ const j=await this.api("getMonths",{months:Object.keys(this.months).concat(this.wantMonths())}); Object.assign(this.months,j.months); const b=await this.api("bootstrap",{months:[]}); this.settings={...this.settings,...b.settings}; this.staff=b.staff; this.me=b.me; this.isAdmin=b.isAdmin; this.serverVersion=b.version||this.serverVersion; this.lastFetch=Date.now(); }catch(e){} this.emit(); autoFresh(); },
   subscribeMonth(ym){ if(!this.ready||this.months[ym]||this.loading[ym]) return; this.loading[ym]=true; this.api("getMonths",{months:[ym]}).then(j=>{ Object.assign(this.months,j.months); }).catch(()=>{}).finally(()=>{ delete this.loading[ym]; this.emit(); }); },
   monthData(ym){ return this.months[ym]||{shift:null,wishes:{},timecards:{}}; },
   wishesOf(ym){ return this.monthData(ym).wishes||{}; },
@@ -768,6 +768,14 @@ function vSettings(){
 /* ============================================================
    操作
    ============================================================ */
+// 画面のプログラムを取り直して開き直す（「最新に更新」と、サーバーの方が新しいと分かったとき）
+async function freshPage(){ try{ await fetch(location.pathname,{cache:"reload"}); }catch(e){} location.reload(); }
+function autoFresh(){ try{
+  if(!((Store.serverVersion||"")>SERVER_VERSION)) return;                       // 画面の方が古いときだけ
+  if(state.draftDirty||state.sheetDay||Store.pendingSaves>0||Store.dirtyShift) return;   // 入力の途中では開き直さない（次の機会に）
+  const last=+sessionStorage.getItem("freshAt")||0; if(Date.now()-last<120000) return;   // 配信が追いつくまでの空回りを防ぐ
+  sessionStorage.setItem("freshAt",Date.now()); freshPage();
+}catch(e){} }
 function editingTime(){ const a=document.activeElement; return !!(a&&a.matches&&a.matches("input[type=time][data-tin],input[type=time][data-tout]")); }
 function go(){ state.renderLater=false; render(); }
 function softGo(){ if(editingTime()&&Date.now()-(state.lastTap||0)>500){ state.renderLater=true; return; } go(); }   // 裏で届いた更新用。時刻を入れている最中は待つ（ボタンを押した直後は待たない）
@@ -783,7 +791,7 @@ app.addEventListener("click", async e=>{
   const act=t.dataset.act, S=Store.settings;
   if(t.tagName==="A") e.preventDefault();
   switch(act){
-    case "refresh": toast("更新しています…"); await Store.refresh(); toast("最新の状態です"); break;
+    case "refresh": toast("更新しています…"); if(Store.pendingSaves>0||Store.dirtyShift){ await Store.refresh(); toast("最新の状態です"); break; } await freshPage(); break;   // プログラムごと取り直す（データだけ更新すると、古い画面のまま使い続けてしまう）
     case "toggleRole": state.role = state.role==="admin"?"staff":"admin"; state.selDay=null; state.sheetDay=null; go(); break;
     case "exitProxy": state.proxyId=null; state.draftWish=null; state.tab="wish"; go(); break;
     case "tab": state.tab=t.dataset.v; state.selDay=null; go(); break;
