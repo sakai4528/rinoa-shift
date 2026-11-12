@@ -225,7 +225,7 @@ const CONFIG = {
 /* ============================================================
    共通
    ============================================================ */
-const SERVER_VERSION="2026-11-10.4";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
+const SERVER_VERSION="2026-11-12.1";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
 const TC_MODES={nearest:"四捨五入（15分未満は切り捨て、15分以上は30分扱い）",floor:"すべて切り捨て",ceil:"すべて切り上げ",favor:"出勤は切り上げ・退勤は切り捨て"};
 const WD = ["日","月","火","水","木","金","土"];
 const pad = n => String(n).padStart(2,"0");
@@ -512,7 +512,7 @@ function vWish(m){
   return `<section class="card">
     ${vMonthNav("wm",ym,"の希望")}
     <div class="row space" style="margin:8px 0 10px"><span>${statusBadge(Store.shiftOf(ym).status)}</span><span class="note">${editable?"当日まで出せます":"過ぎた月です"}</span></div>
-    ${editable?`<p class="note" style="margin:0 0 8px"><b>入れる日をタップすると、自分の名前が入ります。</b>もう一度タップで <b style="color:var(--wish-p)">時間</b>（時間指定）、さらにタップで取り消し。何も押していない日は「入らない」扱いです。</p>${adm?"":`<div class="hint" style="margin:0 0 8px">🔒 送信した日は、あとから変えたり消したりできません。<b>変更・取り消しは かよさんに連絡</b>してください（かよさんが直します）。</div>`}`:""}
+    ${editable?`<p class="note" style="margin:0 0 8px"><b>入れる日をタップすると、自分の名前が入ります。</b>もう一度タップで <b style="color:var(--wish-p)">時間</b>（時間指定）、さらにタップで取り消し。何も押していない日は「入らない」扱いです。</p>${adm||m.autoOk?"":`<div class="hint" style="margin:0 0 8px">🔒 送信した日は、あとから変えたり消したりできません。<b>変更・取り消しは かよさんに連絡</b>してください（かよさんが直します）。</div>`}`:""}
     <div class="cal mc wishcal">${WD.map((w,i)=>`<div class="dh ${i===6?"sat":""} ${i===0?"sun":""}">${w}</div>`).join("")}${cells.join("")}</div>
     <div class="legend"><span>名前＝その日に入る人${pub?"（確定）":"（確定前は「出勤できる」と答えている人）"}</span><span><i style="background:var(--chip);box-shadow:inset 0 0 0 1.5px var(--accent)"></i>あなた</span><span><b style="color:var(--wish-p)">時間</b>＝時間指定</span></div>
     ${editable&&sel&&sv?.t==="p"&&!locked(sel)?`<div class="timebox"><input type="time" id="wFrom" data-wt="from" data-d="${sel}" value="${esc(sv.from||"10:00")}" aria-label="開始"><span>〜</span><input type="time" id="wTo" data-wt="to" data-d="${sel}" value="${esc(sv.to||"15:00")}" aria-label="終了"></div><p class="note">${mo}月${sel}日は この時間なら出勤できる、という指定です。</p>`:""}
@@ -520,7 +520,7 @@ function vWish(m){
     ${sel&&locked(sel)?`<p class="note">${mo}月${sel}日は送信済みです${sentDays[sel].t==="p"?`（${dropZero(sentDays[sel].from)}〜${dropZero(sentDays[sel].to)}）`:""}。変更・取り消しは かよさんに連絡してください。</p>`:""}
     ${!adm&&saved?.memo?`<div class="st" style="margin-top:10px;text-align:left;white-space:pre-wrap"><b>送信済みの連絡事項</b><br>${esc(saved.memo)}</div>`:""}
     ${editable?`<label class="f" style="margin-top:10px;display:flex;flex-direction:column;gap:5px;font-size:13px;font-weight:700">${!adm&&saved?.memo?"連絡事項を書き足す":"連絡事項"}<span class="h">（例：15日は学校行事のため午前のみ可）</span><textarea id="wMemo" maxlength="300" placeholder="任意">${esc(W.memo)}</textarea></label>
-    <div class="wishctl"><button class="btn block" data-act="sendWish" ${state.busy?"disabled":""}>${saved?(adm?"希望を更新して送信":"追加した日を送信"):"希望を送信"}</button></div>${state.draftDirty?'<p class="note" style="margin:6px 0 0;color:var(--warn)">未送信の変更があります</p>':""}`
+    <div class="wishctl"><button class="btn block" data-act="sendWish" ${state.busy?"disabled":""}>${saved?(adm?"希望を更新して送信":"追加した日を送信"):"希望を送信"}</button></div><p class="note" id="wDirty" style="margin:6px 0 0;color:var(--warn)">${state.draftDirty?"未送信の変更があります":""}</p>`
     :`<div class="hint" style="margin-top:10px">${monthLabel(ym)}は過ぎた月です。変更がある場合は かよさんに連絡してください。</div>`}
   </section>`;
 }
@@ -842,7 +842,7 @@ app.addEventListener("click", async e=>{
 });
 app.addEventListener("change", e=>{
   const t=e.target;
-  if(t.dataset.wt){ const d=+t.dataset.d, W=state.draftWish; if(W.days[d]?.t==="p"){ W.days[d][t.dataset.wt]=t.value; state.draftDirty=true; go(); } return; }
+  if(t.dataset.wt){ const d=+t.dataset.d, W=state.draftWish; if(W.days[d]?.t==="p"&&t.value){ W.days[d][t.dataset.wt]=t.value; state.draftDirty=true; const n=document.getElementById("wDirty"); if(n) n.textContent="未送信の変更があります"; } return; }   // 描き直すと時刻の選択が閉じて画面がカレンダーへ飛ぶので、描き直さない
   const sid=t.dataset.tin||t.dataset.tout;
   if(sid && state.sheetDay){ const s=$(`#tin_${sid}`)?.value, en=$(`#tout_${sid}`)?.value, S=Store.settings; if(!s||!en) return; const d=state.sheetDay;
     writeCells(c=>{ const k=`${d}_${sid}`; c[k] = withTags((s===S.openStart&&en===S.openEnd) ? "ON" : `C:${s}-${en}`, tagsOf(c[k])); }); }

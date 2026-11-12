@@ -14,7 +14,7 @@
  *   4. デプロイ → 新しいデプロイ → ウェブアプリ（実行ユーザー: 自分 / アクセス: 全員）
  */
 
-const VERSION = "2026-11-10.4";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
+const VERSION = "2026-11-12.1";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
 const TZ = "Asia/Tokyo";
 const PROP = PropertiesService.getScriptProperties();
 
@@ -69,6 +69,7 @@ function doPost(e) {
       const res = handleDevice_(body.action, body.data || {}, device);
       return json_(Object.assign({ ok: true }, res));
     }
+    migrateOnce_();
     const auth = verifyUser_(body.accessToken);
     const res = handle_(body.action, body.data || {}, auth);
     return json_(Object.assign({ ok: true }, res));
@@ -1071,6 +1072,19 @@ function getSheet_(name) {
   const have = sh.getLastColumn() ? sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0] : [];
   if (want.some((h, i) => have[i] !== h)) sh.getRange(1, 1, 1, want.length).setValues([want]);   // 列が増えたとき見出しをそろえる
   return sh;
+}
+// 1回だけ：ママ（まみっ）に「承認なしで載る」と月給15万円を入れる（2026-11-12 やっさん。あとから管理画面で外せる）
+function migrateOnce_() {
+  if (PROP.getProperty("migr_mama_2611")) return;
+  try {
+    const s = readAll_("staff").find(x => x.id === "s_mvp7mgta");
+    if (s) {
+      if (s.autoOk === "" || s.autoOk === undefined) s.autoOk = true;
+      if (!+s.monthly) s.monthly = 150000;
+      upsert_("staff", ["id"], s);
+    }
+    PROP.setProperty("migr_mama_2611", nowStr_());
+  } catch (e) { console.log("migrateOnce_ " + e); }
 }
 function readAll_(name) {
   const sh = getSheet_(name);
