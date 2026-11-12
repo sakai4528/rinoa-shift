@@ -225,7 +225,7 @@ const CONFIG = {
 /* ============================================================
    共通
    ============================================================ */
-const SERVER_VERSION="2026-11-12.1";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
+const SERVER_VERSION="2026-11-12.2";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
 const TC_MODES={nearest:"四捨五入（15分未満は切り捨て、15分以上は30分扱い）",floor:"すべて切り捨て",ceil:"すべて切り上げ",favor:"出勤は切り上げ・退勤は切り捨て"};
 const WD = ["日","月","火","水","木","金","土"];
 const pad = n => String(n).padStart(2,"0");
@@ -768,7 +768,9 @@ function vSettings(){
 /* ============================================================
    操作
    ============================================================ */
-function go(){ render(); }
+function editingTime(){ const a=document.activeElement; return !!(a&&a.matches&&a.matches("input[type=time][data-tin],input[type=time][data-tout]")); }
+function go(){ state.renderLater=false; render(); }
+function softGo(){ if(editingTime()&&Date.now()-(state.lastTap||0)>500){ state.renderLater=true; return; } go(); }   // 裏で届いた更新用。時刻を入れている最中は待つ（ボタンを押した直後は待たない）
 function setMonth(n){ state.month=addMonth(state.month,n); state.selDay=null; state.sheetDay=null; state.lineText=null; go(); }
 function writeCells(mut){ const sh={...Store.shiftOf(state.month)}; sh.cells={...sh.cells}; mut(sh.cells); Store.setShiftLocal(sh); }
 async function busy(fn){ if(state.busy) return; state.busy=true; app.querySelectorAll("button").forEach(b=>b.disabled=true);   // 描き直すと入力中の値が消えるので、ボタンを止めるだけにする
@@ -777,7 +779,7 @@ function errMsg(e){ const m=String(e&&e.message||e); return ({closed:"受付は�
 
 app.addEventListener("click", async e=>{
   const t=e.target.closest("[data-act]"); if(!t) return;
-  if(t.dataset.act==="closeSheet" && t.closest("[data-stop]") && t.tagName!=="BUTTON") return;
+  if(t.dataset.act==="closeSheet" && t.tagName!=="BUTTON" && e.target.closest("[data-stop]")) return;   // シートの中（時刻の欄など）を押しても閉じない。閉じるのは外側と「閉じる」ボタンだけ
   const act=t.dataset.act, S=Store.settings;
   if(t.tagName==="A") e.preventDefault();
   switch(act){
@@ -896,7 +898,11 @@ function buildTcText(){
 /* ============================================================
    起動
    ============================================================ */
-Store.on(()=>render());
+Store.on(()=>softGo());
+// 時刻の欄の外を押したら、入力を終わりにして、待たせていた描き直しをする（iPhoneはボタンを押しても欄から離れた扱いにならない）
+app.addEventListener("click", e=>{ if(e.target.matches&&e.target.matches("input[type=time]")) return; state.lastTap=Date.now(); if(editingTime()) document.activeElement.blur(); if(state.renderLater&&!e.target.closest("[data-act]")) go(); }, true);
+// 時刻を入れている最中は描き直さない（描き直すと入力欄が作り直されて、続きが打てなくなる）。欄から離れたら描き直す
+app.addEventListener("focusout", ()=>{ if(!state.renderLater) return; setTimeout(()=>{ if(!state.renderLater||editingTime()) return; state.renderLater=false; render(); },300); });   // すぐ描き直すと、欄から離れるときに押したボタンが効かなくなるので少し待つ
 Store.init().then(()=>{ if(Store.isAdmin && !Store.me) state.role="admin";
   const tab=new URLSearchParams(location.search).get("tab");   // トーク画面のメニューから開いたとき（?tab=tc / shift / wish）
   if(["tc","shift","wish","bottle"].includes(tab)){ state.role="staff"; state.tab=tab; }
