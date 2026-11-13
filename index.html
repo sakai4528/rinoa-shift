@@ -418,6 +418,7 @@ function pendingOf(ym){
   const sh=Store.shiftOf(ym); if(sh.status!=="published") return [];
   const pubAt=String(sh.publishedAt||""), S=Store.settings, out=[];
   activeStaff().forEach(s=>{ const w=Store.wishesOf(ym)[s.id]; if(!w) return;
+    if(s.autoOk) return;   // 承認なしの人（ママ）は、足した日がそのままシフトに載るので承認待ちには出さない
     const hasAt=Object.values(w.days||{}).some(x=>x&&x.at);   // 日ごとの時刻がある希望は、時刻のない日＝公開前の分
     Object.entries(w.days||{}).forEach(([d,v])=>{ if(!(v?.t==="o"||v?.t==="p")) return; if(sh.cells[`${d}_${s.id}`]) return;
       const when=v.at||(hasAt?"":String(w.updatedAt||"")); if(!when||when<=pubAt) return;
