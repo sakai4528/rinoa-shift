@@ -14,7 +14,7 @@
  *   4. デプロイ → 新しいデプロイ → ウェブアプリ（実行ユーザー: 自分 / アクセス: 全員）
  */
 
-const VERSION = "2026-11-15.2";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
+const VERSION = "2026-11-15.3";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
 const TZ = "Asia/Tokyo";
 const PROP = PropertiesService.getScriptProperties();
 
@@ -51,7 +51,7 @@ const SHEETS = {
   shifts:    ["month", "status", "publishedAt", "cells"],
   wishes:    ["month", "staffId", "days", "memo", "updatedAt"],
   timecards: ["month", "staffId", "days", "edits"],   // edits＝修正履歴（2026-11-09 追加）
-  admins:    ["userId", "name", "addedAt"],
+  admins:    ["userId", "name", "addedAt", "webKey", "webAt"],   // webKey＝Safari（LINEなし）で管理画面を開くための鍵のハッシュ（2026-11-15 追加）
   devices:   ["id", "name", "key", "createdAt", "lastSeen"],
   log:       ["at", "userId", "action", "detail"],
   bottles:   ["id", "date", "staffId", "kind", "item", "price", "qty", "checked", "deleted", "by", "createdAt"],
@@ -76,8 +76,9 @@ function doPost(e) {
       const res = handleDevice_(body.action, body.data || {}, device);
       return json_(Object.assign({ ok: true }, res));
     }
+    if (body.action === "adminWebLogin") return json_(Object.assign({ ok: true }, adminWebLogin_(body.data || {})));   // Safari 用：ログインコード → 鍵
     migrateOnce_();
-    const auth = verifyUser_(body.accessToken);
+    const auth = body.adminKey ? verifyAdminKey_(body.adminKey) : verifyUser_(body.accessToken);
     const res = handle_(body.action, body.data || {}, auth);
     return json_(Object.assign({ ok: true }, res));
   } catch (err) {
@@ -137,6 +138,8 @@ function handle_(action, data, auth) {
         me: me ? publicStaff_(me, true) : null,
         bizToday: bizDate_(),
         isAdmin,
+        web: !!auth.web,                                                        // Safari（鍵）で開いているか
+        webLogin: isAdmin && !!(admins.find(a => a.userId === auth.userId) || {}).webKey,   // この管理者の Safari ログインが有効か
         devices: isAdmin ? readAll_("devices").map(d => ({ id: d.id, name: d.name, key: d.key, createdAt: d.createdAt, lastSeen: d.lastSeen })) : [],
         liffUrl: PROP.getProperty("LIFF_URL") || "",
         months: monthsFor_(data.months || [], me, isAdmin)
@@ -199,6 +202,21 @@ function handle_(action, data, auth) {
       remove_("devices", r => r.id === data.id);
       log_(auth, "deleteDevice", data.id);
       return { devices: readAll_("devices") };
+    }
+
+    case "adminWebCode": {   // Safari（LINEなしのiPad・パソコン）から管理画面に入るための一回限りのコード（10分）
+      needAdmin();
+      const cs = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; let raw = ""; for (let i = 0; i < 8; i++) raw += cs[Math.floor(Math.random() * cs.length)];
+      CacheService.getScriptCache().put("awc:" + webHash_(raw), JSON.stringify({ userId: auth.userId, name: auth.name }), 600);
+      log_(auth, "adminWebCode", "");
+      return { code: raw.slice(0, 4) + "-" + raw.slice(4), minutes: 10 };
+    }
+    case "adminWebLogout": {   // Safari のログインを解除（LINE 側からも、Safari 側からも押せる）
+      needAdmin();
+      const a = admins.find(x => x.userId === auth.userId);
+      if (a) upsert_("admins", ["userId"], Object.assign({}, a, { webKey: "", webAt: "" }));
+      log_(auth, "adminWebLogout", auth.web ? "web" : "line");
+      return { webLogin: false };
     }
 
     case "adminLogin": {
@@ -775,6 +793,32 @@ function ensureTriggers_() {
     if (have.indexOf("hoursJob") < 0) ScriptApp.newTrigger("hoursJob").timeBased().everyHours(1).create();
     cache.put("triggers_ok2", "1", 21600);
   } catch (e) { Logger.log("ensureTriggers " + e); }
+}
+
+/* ============================================================
+   管理者の Safari ログイン：LINE の管理画面で出した一回限りのコードを鍵に替え、鍵のハッシュだけを admins に置く
+   ============================================================ */
+function webHash_(s) { return Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, "web:" + s)); }
+function adminWebLogin_(data) {
+  const raw = String(data.code || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (raw.length !== 8) throw new Error("bad_code");
+  const cache = CacheService.getScriptCache(), ck = "awc:" + webHash_(raw);
+  const hit = cache.get(ck);
+  if (!hit) throw new Error("bad_code");
+  cache.remove(ck);                                                             // 一回限り
+  const who = JSON.parse(hit);
+  const a = readAll_("admins").find(x => x.userId === who.userId);
+  if (!a) throw new Error("bad_code");
+  const key = Utilities.getUuid().replace(/-/g, "") + Utilities.getUuid().replace(/-/g, "");
+  upsert_("admins", ["userId"], Object.assign({}, a, { webKey: webHash_(key), webAt: nowStr_() }));   // 新しくログインすると前の Safari は外れる
+  log_({ userId: who.userId }, "adminWebLogin", "");
+  return { key, name: a.name || who.name || "" };
+}
+function verifyAdminKey_(key) {
+  const h = webHash_(String(key || ""));
+  const a = readAll_("admins").find(x => x.webKey && x.webKey === h);
+  if (!a) throw new Error("unauthorized");
+  return { userId: a.userId, name: a.name || "", web: true };
 }
 
 /* ============================================================

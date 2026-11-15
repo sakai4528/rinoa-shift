@@ -223,11 +223,14 @@ const CONFIG = {
   liffId: "2012191949-slfaXSbA",                 // LINE Developers の LIFF ID（例 2001234567-AbCdEfGh）
   apiUrl: "https://script.google.com/macros/s/AKfycbzhQBkdaln_Rsxx_GCO5MnYtuQq0N1VmV7wZz_CaP-AhtT_Z5LhJJZyknqsc39sRpw/exec"           // Apps Script のウェブアプリ URL（…/exec）
 };
+// Safari（LINEのないiPad・パソコン）から管理画面を開くとき：admin.html → ?admin=1。LINEの代わりに、管理画面で出したログインコードで本人確認する
+const WEB_ADMIN = new URLSearchParams(location.search).has("admin");
+const WEB_KEY = "rinoa-admin-key";
 
 /* ============================================================
    共通
    ============================================================ */
-const SERVER_VERSION="2026-11-15.2";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
+const SERVER_VERSION="2026-11-15.3";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
 const TC_MODES={nearest:"四捨五入（15分未満は切り捨て、15分以上は30分扱い）",floor:"すべて切り捨て",ceil:"すべて切り上げ",favor:"出勤は切り上げ・退勤は切り捨て"};
 const WD = ["日","月","火","水","木","金","土"];
 const pad = n => String(n).padStart(2,"0");
@@ -319,12 +322,17 @@ function dayCounts(ym){
    Store：LIFF で本人確認し、Apps Script の API でやりとり
    ============================================================ */
 const Store = {
-  token:null, profile:null, me:null, isAdmin:false, liffUrl:"", serverVersion:"", devices:[],
+  token:null, profile:null, me:null, isAdmin:false, liffUrl:"", serverVersion:"", devices:[], web:WEB_ADMIN, adminKey:null, needLogin:false, webLogin:false,
   settings:{name:"シフト表",eyebrow:"",deadlineDay:20,openStart:"11:00",openEnd:"18:00",required:[2,2,2,2,2,3,3],closed:[],closedHol:true,tcUnit:30,tcMode:"nearest"},
   staff:[], months:{}, loading:{}, listeners:[], ready:false, error:null, lastFetch:0, pendingSaves:0, bottles:{}, pay:{}, failed:{},
   on(fn){ this.listeners.push(fn); }, emit(){ this.listeners.forEach(f=>f()); },
   async init(){
     if(!CONFIG.liffId || CONFIG.liffId.includes("HERE") || !CONFIG.apiUrl || CONFIG.apiUrl.includes("HERE")){ this.error="設定が未入力です（index.html の CONFIG に LIFF ID と API の URL を入れてください）"; this.emit(); return; }
+    if(this.web){                                                  // Safari：保存してある鍵で開く。なければログインコードの画面
+      try{ this.adminKey=localStorage.getItem(WEB_KEY)||null; }catch(e){ this.adminKey=null; }
+      if(!this.adminKey){ this.needLogin=true; this.emit(); return; }
+      await this.bootstrap(); return;
+    }
     try{
       await liff.init({liffId:CONFIG.liffId});
       if(!liff.isLoggedIn()){ liff.login({redirectUri:location.href}); return; }
@@ -333,21 +341,39 @@ const Store = {
     await this.bootstrap();
   },
   async api(action,data){
-    const res=await fetch(CONFIG.apiUrl,{method:"POST",body:JSON.stringify({action,accessToken:this.token,data:data||{}})});
+    const body=this.web?{action,adminKey:this.adminKey,data:data||{}}:{action,accessToken:this.token,data:data||{}};
+    const res=await fetch(CONFIG.apiUrl,{method:"POST",body:JSON.stringify(body)});
     const j=await res.json().catch(()=>({ok:false,error:"bad_response"}));
-    if(!j.ok){ if(j.error==="unauthorized"){ try{ liff.logout(); }catch(e){} liff.login({redirectUri:location.href}); } throw new Error(j.error||"error"); }
+    if(!j.ok){
+      if(j.error==="unauthorized"){
+        if(this.web){ this.dropWebKey(); this.ready=false; this.needLogin=true; this.error=null; this.emit(); }   // 鍵が解除された（別のSafariでログインした・LINEから解除した）
+        else { try{ liff.logout(); }catch(e){} liff.login({redirectUri:location.href}); }
+      }
+      throw new Error(j.error||"error");
+    }
     return j;
   },
+  dropWebKey(){ this.adminKey=null; try{ localStorage.removeItem(WEB_KEY); }catch(e){} },
+  /* --- Safari ログイン --- */
+  async webLogin(code){
+    const res=await fetch(CONFIG.apiUrl,{method:"POST",body:JSON.stringify({action:"adminWebLogin",data:{code}})});
+    const j=await res.json().catch(()=>({ok:false,error:"bad_response"}));
+    if(!j.ok) throw new Error(j.error||"error");
+    this.adminKey=j.key; try{ localStorage.setItem(WEB_KEY,j.key); }catch(e){}
+    this.needLogin=false; await this.bootstrap();
+  },
+  async webCode(){ const j=await this.api("adminWebCode",{}); return j; },
+  async webLogout(){ try{ await this.api("adminWebLogout",{}); }catch(e){} this.webLogin=false; if(this.web){ this.dropWebKey(); this.ready=false; this.needLogin=true; } this.emit(); },
   wantMonths(){ const s=new Set([state.month,THIS_YM,BIZ_YM,addMonth(THIS_YM,-1),state.wishMonth,state.tcMonth]); return [...s]; },
   async bootstrap(){
     try{
       const j=await this.api("bootstrap",{months:this.wantMonths()});
-      this.profile=j.profile; this.serverVersion=j.version||""; this.devices=j.devices||[]; this.settings={...this.settings,...j.settings}; this.staff=j.staff; this.me=j.me; this.isAdmin=j.isAdmin; this.liffUrl=j.liffUrl||"";
+      this.profile=j.profile; this.serverVersion=j.version||""; this.devices=j.devices||[]; this.settings={...this.settings,...j.settings}; this.staff=j.staff; this.me=j.me; this.isAdmin=j.isAdmin; this.liffUrl=j.liffUrl||""; this.webLogin=!!j.webLogin;
       Object.assign(this.months,j.months); this.ready=true; this.error=null; this.lastFetch=Date.now();
     }catch(e){ this.error="データを読み込めませんでした。電波の良いところでもう一度開いてください。（"+(e.message||e)+"）"; }
     this.emit(); autoFresh();
   },
-  async refresh(){ if(!this.ready) return this.bootstrap(); try{ const j=await this.api("getMonths",{months:Object.keys(this.months).concat(this.wantMonths())}); Object.assign(this.months,j.months); const b=await this.api("bootstrap",{months:[]}); this.settings={...this.settings,...b.settings}; this.staff=b.staff; this.me=b.me; this.isAdmin=b.isAdmin; this.serverVersion=b.version||this.serverVersion; this.lastFetch=Date.now(); }catch(e){} this.emit(); autoFresh(); },
+  async refresh(){ if(!this.ready) return this.bootstrap(); try{ const j=await this.api("getMonths",{months:Object.keys(this.months).concat(this.wantMonths())}); Object.assign(this.months,j.months); const b=await this.api("bootstrap",{months:[]}); this.settings={...this.settings,...b.settings}; this.staff=b.staff; this.me=b.me; this.isAdmin=b.isAdmin; this.webLogin=!!b.webLogin; this.serverVersion=b.version||this.serverVersion; this.lastFetch=Date.now(); }catch(e){} this.emit(); autoFresh(); },
   subscribeMonth(ym){ if(!this.ready||this.months[ym]||this.loading[ym]) return; this.loading[ym]=true; this.api("getMonths",{months:[ym]}).then(j=>{ Object.assign(this.months,j.months); }).catch(()=>{}).finally(()=>{ delete this.loading[ym]; this.emit(); }); },
   monthData(ym){ return this.months[ym]||{shift:null,wishes:{},timecards:{}}; },
   wishesOf(ym){ return this.monthData(ym).wishes||{}; },
@@ -406,7 +432,8 @@ function monthLabel(ym){ const {y,m}=parseYM(ym); return `${y}年${m}月`; }
    ============================================================ */
 function render(){
   if(Store.error) { app.innerHTML=`<div class="loading"><b>開けませんでした</b>${esc(Store.error)}<div style="margin-top:14px"><button class="btn ghost" onclick="location.reload()">再読み込み</button></div></div>`; return; }
-  if(!Store.ready){ app.innerHTML=`<div class="loading"><b>読み込み中…</b>LINEの情報を確認しています</div>`; return; }
+  if(Store.needLogin){ app.innerHTML=vWebLogin(); return; }
+  if(!Store.ready){ app.innerHTML=`<div class="loading"><b>読み込み中…</b>${Store.web?"確認しています":"LINEの情報を確認しています"}</div>`; return; }
   const S=Store.settings, isAdmin=state.role==="admin";
   Store.subscribeMonth(state.month); if(!isAdmin){ Store.subscribeMonth(state.wishMonth); Store.subscribeMonth(state.tcMonth); }
   const m=me();
@@ -417,7 +444,7 @@ function render(){
   </header>
   <main class="main">${isAdmin?vAdmin():vStaff()}</main>
   <footer class="foot">
-    ${Store.isAdmin?`<span><a href="#" data-act="toggleRole">${isAdmin?"スタッフ画面へ":"経営者用（管理画面）"}</a>${state.proxyId?`　|　<a href="#" data-act="exitProxy">自分の画面に戻る</a>`:""}</span>`:`<span><a href="#" data-act="toggleRole">経営者用</a></span>`}
+    ${Store.isAdmin?`<span><a href="#" data-act="toggleRole">${isAdmin?"スタッフ画面へ":"経営者用（管理画面）"}</a>${state.proxyId?`　|　<a href="#" data-act="exitProxy">自分の画面に戻る</a>`:""}${Store.web?`　|　<a href="#" data-act="webLogout">このブラウザからログアウト</a>`:""}</span>`:`<span><a href="#" data-act="toggleRole">経営者用</a></span>`}
   </footer>
   ${state.sheetDay?vDaySheet():""}
   ${Store.pendingSaves?'<div class="savebar">保存中…</div>':""}`;
@@ -746,6 +773,15 @@ function vStaffAdmin(){
   <div class="hint" style="margin-top:14px">スタッフ本人がLINEからこのページを開いて名前を登録すると、ここに自動で追加されLINE通知も届きます。先に経営者が追加した名前と本人の登録が重なった場合は、片方を「表示しない」にしてください。</div>
   </section>`;
 }
+/* Safari（LINEなし）から管理画面に入るときのログイン画面 */
+function vWebLogin(){
+  return `<header class="hdr"><div class="brand"><span class="eyebrow">ADMIN</span><h1>シフト表 管理画面</h1><span class="sub">経営者用（Safari）</span></div></header>
+  <main class="main"><section class="card"><h2>ログインコードを入れてください</h2>
+    <p class="note">LINEで「リノア シフト表」を開き、<b>経営者用（管理画面）→ 設定 → 「Safari用ログインコードを出す」</b>で出た8文字を、10分以内に入れてください。コードは1回しか使えません。</p>
+    <form class="f" id="webf" style="margin-top:8px"><label>ログインコード<input type="text" name="code" id="webCode" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="例：ABCD-EFGH" maxlength="9" style="font-family:ui-monospace,Menlo,monospace;letter-spacing:.12em;font-size:20px;text-transform:uppercase"></label><div class="err" id="werr">${esc(state.webErr||"")}</div><button class="btn" ${state.busy?"disabled":""}>ログイン</button></form>
+    <p class="hint" style="margin-top:12px">このブラウザにログインが保存されます（次回から入力不要）。スタッフと共用のiPadでは、使い終わったら画面の下の「このブラウザからログアウト」を押してください。</p>
+  </section></main>`;
+}
 function vSettings(){
   const S=Store.settings;
   return `<section class="card"><h2>基本設定</h2>
@@ -775,6 +811,11 @@ function vSettings(){
     ${state.lineStat?`<div id="lineStat" class="warnbox" style="margin:8px 0;font-size:15px"><b>${esc(state.lineStat)}</b></div>`:""}
     <div class="row"><button class="btn ghost sm" data-act="lineCheck">つながっているか確かめる</button><button class="btn sm" data-act="richMenu" ${state.busy?"disabled":""}>トーク画面のメニューを付ける</button></div>
   </section>
+  <section class="card"><h2>Safariから管理画面を開く<small>LINEのないiPad・パソコン</small></h2>
+    <p class="note">Safariで <b>https://sakai4528.github.io/rinoa-shift/admin.html</b> を開き、下で出したログインコードを入れると、この管理画面がそのまま使えます。コードは10分だけ有効で1回しか使えません。新しくログインすると前のブラウザは外れます。</p>
+    ${state.webCode?`<div class="warnbox" style="margin:8px 0;font-size:15px">ログインコード　<b style="font-family:ui-monospace,Menlo,monospace;letter-spacing:.15em;font-size:24px;color:var(--ink)">${esc(state.webCode)}</b><br><span class="h">10分以内にSafari側で入れてください。</span></div>`:""}
+    <div class="row"><button class="btn sm" data-act="webCode" ${state.busy?"disabled":""}>Safari用ログインコードを出す</button>${Store.webLogin?`<button class="btn ghost sm" data-act="webLogout" ${state.busy?"disabled":""}>Safariのログインを解除する</button><span class="h">　Safariでログイン中</span>`:`<span class="h">　Safariのログインはありません</span>`}</div>
+  </section>
   <section class="card"><h2>店舗端末（iPad）<small>${Store.devices.length}台</small></h2>
     <p class="note">店に置くiPadで <b>https://sakai4528.github.io/rinoa-shift/kiosk.html</b> を開き、下の端末コードを入れると打刻専用の画面になります。LINEも管理画面もその端末には表示されません。コードは他人に見せないでください。</p>
     <div class="people" style="margin:10px 0">${Store.devices.map(d=>`<div class="stf"><div><div class="nm">${esc(d.name)}</div><div class="mt">端末コード <b style="font-family:ui-monospace,Menlo,monospace;letter-spacing:.08em;color:var(--ink)">${esc(d.key)}</b>　${d.lastSeen?`最終接続 ${esc(String(d.lastSeen).slice(0,16).replace("T"," "))}`:"未接続"}</div></div><button class="btn danger sm" data-act="delDevice" data-id="${esc(d.id)}">無効にする</button></div>`).join("")||'<div class="note">まだ端末コードがありません。</div>'}</div>
@@ -801,7 +842,7 @@ function setMonth(n){ state.month=addMonth(state.month,n); state.selDay=null; st
 function writeCells(mut){ const sh={...Store.shiftOf(state.month)}; sh.cells={...sh.cells}; mut(sh.cells); Store.setShiftLocal(sh); }
 async function busy(fn){ if(state.busy) return; state.busy=true; app.querySelectorAll("button").forEach(b=>b.disabled=true);   // 描き直すと入力中の値が消えるので、ボタンを止めるだけにする
   try{ await fn(); }catch(e){ toast(errMsg(e)); } state.busy=false; go(); }
-function errMsg(e){ const m=String(e&&e.message||e); return ({closed:"受付は締め切られています",forbidden:"この操作は管理者のみです",not_registered:"先に名前を登録してください",already_in:"すでに出勤しています",not_in:"出勤が押されていません",bad_pin:"暗証番号が違います",bad_pin_format:"暗証番号は4〜6桁の数字にしてください",phone_punch_disabled:"出勤・退勤は店内のiPadで押してください",pin_not_set:"先に暗証番号を設定してください",bad_staff:"スタッフが見つかりません",no_record:"その日の打刻がありません",text_required:"内容を書いてください",undo_expired:"取り消せるのは打刻から15分以内です",not_out:"退勤はまだ押されていません",already_out:"退勤済みのため取り消せません",bad_wage:"時給が正しくありません",bad_rate:"歩合は0〜100%で入れてください",bad_date:"日にちを入れてください",future_date:"先の日付には入れられません",too_old:"古い日付の分は経営者に入れてもらってください",bad_kind:"種類を選んでください",bad_price:"値段を入れてください",bad_qty:"本数が正しくありません",bad_bottle:"記録が見つかりません",bottle_locked:"確認済みの記録は経営者に直してもらってください",no_token:"まだLINEの鍵が入っていません"})[m]||("エラー："+m); }
+function errMsg(e){ const m=String(e&&e.message||e); return ({closed:"受付は締め切られています",forbidden:"この操作は管理者のみです",not_registered:"先に名前を登録してください",already_in:"すでに出勤しています",not_in:"出勤が押されていません",bad_pin:"暗証番号が違います",bad_pin_format:"暗証番号は4〜6桁の数字にしてください",phone_punch_disabled:"出勤・退勤は店内のiPadで押してください",pin_not_set:"先に暗証番号を設定してください",bad_staff:"スタッフが見つかりません",no_record:"その日の打刻がありません",text_required:"内容を書いてください",undo_expired:"取り消せるのは打刻から15分以内です",not_out:"退勤はまだ押されていません",already_out:"退勤済みのため取り消せません",bad_wage:"時給が正しくありません",bad_rate:"歩合は0〜100%で入れてください",bad_date:"日にちを入れてください",future_date:"先の日付には入れられません",too_old:"古い日付の分は経営者に入れてもらってください",bad_kind:"種類を選んでください",bad_price:"値段を入れてください",bad_qty:"本数が正しくありません",bad_bottle:"記録が見つかりません",bottle_locked:"確認済みの記録は経営者に直してもらってください",no_token:"まだLINEの鍵が入っていません",bad_code:"ログインコードが違うか、期限が切れています",unauthorized:"ログインが切れました。もう一度ログインしてください"})[m]||("エラー："+m); }
 
 app.addEventListener("click", async e=>{
   const t=e.target.closest("[data-act]"); if(!t) return;
@@ -811,6 +852,8 @@ app.addEventListener("click", async e=>{
   switch(act){
     case "refresh": toast("更新しています…"); if(Store.pendingSaves>0||Store.dirtyShift){ await Store.refresh(); toast("最新の状態です"); break; } await freshPage(); break;   // プログラムごと取り直す（データだけ更新すると、古い画面のまま使い続けてしまう）
     case "toggleRole": state.role = state.role==="admin"?"staff":"admin"; state.selDay=null; state.sheetDay=null; go(); break;
+    case "webCode": await busy(async()=>{ const j=await Store.webCode(); state.webCode=j.code; toast("ログインコードを出しました（10分有効）"); }); break;
+    case "webLogout": { if(Store.web && !confirm("このブラウザから管理画面をログアウトします。よろしいですか？")) break; await busy(async()=>{ await Store.webLogout(); state.webCode=null; if(!Store.web) toast("Safariのログインを解除しました"); }); break; }
     case "exitProxy": state.proxyId=null; state.draftWish=null; state.tab="wish"; go(); break;
     case "tab": state.tab=t.dataset.v; state.selDay=null; go(); break;
     case "atab": state.atab=t.dataset.v; state.sheetDay=null; state.lineText=null; go(); break;
@@ -888,6 +931,8 @@ app.addEventListener("submit", async e=>{
   if(fid==="regf"){ const name=(fd.get("name")||"").trim(); if(!name){ $("#regerr").textContent="お名前を入れてください"; return; } await busy(async()=>{ await Store.register(name); toast(`${name}さん、登録しました`); }); }
   if(fid==="fixreq"){ const d=+f.dataset.d, text=($("#fixText")?.value||"").trim(); if(!text){ toast("内容を書いてください"); return; } await busy(async()=>{ await Store.requestFix(state.tcMonth,d,text); state.fixReqDay=null; toast("経営者に送りました"); }); }
   if(fid==="pinset"){ const pin=String(fd.get("pin")||"").trim(); if(!/^\d{4,6}$/.test(pin)){ toast("暗証番号は4〜6桁の数字にしてください"); return; } await busy(async()=>{ await Store.setPin(pin); toast("暗証番号を設定しました。店舗iPadで使えます"); }); }
+  if(fid==="webf"){ const code=String(fd.get("code")||"").trim(); if(code.replace(/[^A-Za-z0-9]/g,"").length!==8){ state.webErr="8文字のコードを入れてください"; render(); return; }
+    state.webErr=""; state.busy=true; render(); try{ await Store.webLogin(code); state.role="admin"; }catch(e){ state.webErr=String(e.message)==="bad_code"?"コードが違うか、期限（10分）が切れています。LINEの管理画面でもう一度出してください。":"つながりませんでした。電波を確認してもう一度お試しください。"; } state.busy=false; render(); return; }
   if(fid==="devf"){ const name=String(fd.get("name")||"").trim()||"店舗iPad"; await busy(async()=>{ await Store.createDevice(name); toast("端末コードを発行しました"); }); }
   if(fid==="pinf"){ await busy(async()=>{ await Store.adminLogin(String(fd.get("pin")||"")); state.role="admin"; toast("管理者として登録しました"); }); }
   if(fid==="stf"){
@@ -932,7 +977,7 @@ Store.on(()=>softGo());
 app.addEventListener("click", e=>{ if(e.target.matches&&e.target.matches("input[type=time]")) return; state.lastTap=Date.now(); if(editingTime()) document.activeElement.blur(); if(state.renderLater&&!e.target.closest("[data-act]")) go(); }, true);
 // 時刻を入れている最中は描き直さない（描き直すと入力欄が作り直されて、続きが打てなくなる）。欄から離れたら描き直す
 app.addEventListener("focusout", ()=>{ if(!state.renderLater) return; setTimeout(()=>{ if(!state.renderLater||editingTime()) return; state.renderLater=false; render(); },300); });   // すぐ描き直すと、欄から離れるときに押したボタンが効かなくなるので少し待つ
-Store.init().then(()=>{ if(Store.isAdmin && !Store.me) state.role="admin";
+Store.init().then(()=>{ if(Store.isAdmin && (!Store.me || Store.web)) state.role="admin";
   const tab=new URLSearchParams(location.search).get("tab");   // トーク画面のメニューから開いたとき（?tab=tc / shift / wish）
   if(["tc","shift","wish","bottle"].includes(tab)){ state.role="staff"; state.tab=tab; }
   render(); });

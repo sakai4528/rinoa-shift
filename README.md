@@ -119,6 +119,17 @@ Google ドライブの「リノア シフト表データ」スプレッドシー
 
 ---
 
+## Safari から管理画面を開く（LINE のない iPad・パソコン）
+
+経営者（管理者）は LINE なしでも **`admin.html`**（`https://sakai4528.github.io/rinoa-shift/admin.html`）から管理画面を開けます。
+
+1. LINE で「リノア シフト表」を開き、経営者用（管理画面）→ 設定 → 「Safari用ログインコードを出す」
+2. Safari で上の URL を開き、出た 8 文字のコードを 10 分以内に入れる（1 回限り）
+3. 以後そのブラウザにはログインが保存される。別のブラウザでログインすると前のブラウザは外れる
+4. 解除は Safari 側の「このブラウザからログアウト」か、LINE 側の設定にある「Safariのログインを解除する」
+
+サーバーは鍵のハッシュだけを `admins` シートに持ち、コードは 10 分で消えます。スタッフ用の打刻画面（`kiosk.html`）とは別物です。
+
 ## 店舗端末（iPad）での打刻
 
 店に置く iPad では LINE を使わず、打刻専用の画面 **`kiosk.html`** を開きます（`https://sakai4528.github.io/rinoa-shift/kiosk.html`）。
