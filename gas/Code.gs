@@ -14,7 +14,7 @@
  *   4. デプロイ → 新しいデプロイ → ウェブアプリ（実行ユーザー: 自分 / アクセス: 全員）
  */
 
-const VERSION = "2026-11-12.3";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
+const VERSION = "2026-11-15.1";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
 const TZ = "Asia/Tokyo";
 const PROP = PropertiesService.getScriptProperties();
 
@@ -40,7 +40,7 @@ const DAY_START_HOUR = 6;   // 朝6時までは前の日の営業として扱う
 
 const SHEETS = {
   settings:  ["key", "value"],
-  staff:     ["id", "name", "short", "emp", "order", "active", "userId", "note", "createdAt", "pin", "wage", "rate", "drinkOn", "autoOk", "monthly"],   // monthly＝月給（固定。入っている人は時給で計算しない）   // autoOk＝公開後に足した日も承認なしでシフトに載る人
+  staff:     ["id", "name", "short", "emp", "order", "active", "userId", "note", "createdAt", "pin", "wage", "rate", "drinkOn", "autoOk", "monthly", "needOk"],   // monthly＝月給（固定。入っている人は時給で計算しない）   // autoOk＝公開後に足した日も承認なしでシフトに載る人
   shifts:    ["month", "status", "publishedAt", "cells"],
   wishes:    ["month", "staffId", "days", "memo", "updatedAt"],
   timecards: ["month", "staffId", "days", "edits"],   // edits＝修正履歴（2026-11-09 追加）
@@ -157,7 +157,7 @@ function handle_(action, data, auth) {
       const prev = readAll_("wishes").find(r => r.month === month && r.staffId === sid);
       const inDays = data.days || {};
       let days = inDays, memo = String(data.memo || "").slice(0, 300), added = [], removed = [];
-      const free = !isAdmin && isTrue_((staff.find(s => s.id === sid) || {}).autoOk);   // ママ：送った日も自分で変えられる・休みにできる
+      const free = !isAdmin && selfOk_(staff.find(s => s.id === sid) || {});   // 承認が必要な人（needOk）以外は、自分で足した日がそのまま載り、変更・休みも自分でできる
       if (!isAdmin) {
         const old = (prev && prev.days) || {}, today = bizDate_();
         const isOn = v => v && (v.t === "o" || v.t === "p");
@@ -203,7 +203,8 @@ function handle_(action, data, auth) {
         const offList = removed.sort((a, b) => a - b).map(d => m + "/" + d).join("、");
         const shNow = readAll_("shifts").find(r => r.month === month);
         const afterPub = shNow && shNow.status === "published" && added.length && !autoShift;
-        pushTo_(admins.map(a => a.userId), `【${settings.name}】${who ? who.name : ""}さんが${m}月の希望を${removed.length ? "変更" : prev ? "追加" : "提出"}しました。${list ? "\n入れる日：" + list : ""}${offList ? "\n休みにした日：" + offList : ""}${memo !== String((prev && prev.memo) || "") ? "\n連絡事項：" + memo.split("\n").pop() : ""}${afterPub ? "\n※ 公開後の追加です。管理画面の「シフト作成」に承認待ちとして出るので、「承認」か「見送り」を押してください。" : ""}`);
+        const autoNote = autoShift ? "\n※ そのままシフト表に載せました（承認は不要の人です）。" : "";
+        pushTo_(admins.map(a => a.userId), `【${settings.name}】${who ? who.name : ""}さんが${m}月の希望を${removed.length ? "変更" : prev ? "追加" : "提出"}しました。${list ? "\n入れる日：" + list : ""}${offList ? "\n休みにした日：" + offList : ""}${memo !== String((prev && prev.memo) || "") ? "\n連絡事項：" + memo.split("\n").pop() : ""}${afterPub ? "\n※ 公開後の追加です。管理画面の「シフト作成」に承認待ちとして出るので、「承認」か「見送り」を押してください。" : ""}${autoNote}`);
       }
       return autoShift ? { wish: w, added, shift: autoShift } : { wish: w, added };
     }
@@ -279,6 +280,7 @@ function handle_(action, data, auth) {
       if (s.rate !== undefined) { const r = +s.rate || 0; if (r < 0 || r > 1) throw new Error("bad_rate"); row.rate = r; }
       if (s.drinkOn !== undefined) row.drinkOn = !!s.drinkOn;
       if (s.autoOk !== undefined) row.autoOk = !!s.autoOk;
+      if (s.needOk !== undefined) row.needOk = !!s.needOk;
       if (s.monthly !== undefined) { const mo = Math.round(+s.monthly || 0); if (mo < 0 || mo > 10000000) throw new Error("bad_wage"); row.monthly = mo || ""; }
       upsert_("staff", ["id"], row);
       log_(auth, "upsertStaff", row.name);
@@ -948,7 +950,8 @@ function publicSettings_(s) { const o = Object.assign({}, s); delete o.pin; retu
 function publicStaff_(s, full) {
   const o = { id: s.id, name: s.name, short: s.short || "", emp: s.emp || "", order: +s.order || 99, active: s.active !== false && s.active !== "FALSE", linked: !!s.userId, hasPin: !!s.pin };
   o.hasRate = (+s.rate || 0) > 0;
-  if (full) { o.note = s.note || ""; o.userId = s.userId || ""; o.wage = +s.wage || 0; o.rate = +s.rate || 0; o.drinkOn = isTrue_(s.drinkOn); o.autoOk = isTrue_(s.autoOk); o.monthly = +s.monthly || 0; }   // drinkOn＝ドリンクバックを見せる人（経営者が設定）
+  if (full) { o.note = s.note || ""; o.userId = s.userId || ""; o.wage = +s.wage || 0; o.rate = +s.rate || 0; o.drinkOn = isTrue_(s.drinkOn); o.autoOk = isTrue_(s.autoOk); o.monthly = +s.monthly || 0; }
+  o.needOk = isTrue_(s.needOk);   // 承認が必要な人か（全員に返す：承認待ちの表示に使う）   // drinkOn＝ドリンクバックを見せる人（経営者が設定）
   return o;
 }
 function sanitizeSettings_(s) {
@@ -1175,7 +1178,7 @@ function bizDate_(d) { return fmt_(new Date((d || new Date()).getTime() - DAY_ST
 function addDays_(ymd, n) { const p = ymd.split("-").map(Number); return fmt_(new Date(p[0], p[1] - 1, p[2] + n, 12), "yyyy-MM-dd"); }
 // 承認なしの人が公開後に足した「入れる日」で、まだマスが空いているものを出勤にする。足したら true
 function applyAutoOk_(month, cells, staff, publishedAt) {
-  const pubAt = String(publishedAt || ""), autos = staff.filter(s => isTrue_(s.autoOk) && s.active !== false);
+  const pubAt = String(publishedAt || ""), autos = staff.filter(s => selfOk_(s) && s.active !== false);
   if (!autos.length || !pubAt) return false;
   const settings = getSettings_(), wishes = readAll_("wishes").filter(r => r.month === month);
   let changed = false;
@@ -1193,4 +1196,6 @@ function applyAutoOk_(month, cells, staff, publishedAt) {
 function autoCell_(v, settings) { return (v.t === "p" && v.from && v.to && !(v.from === settings.openStart && v.to === settings.openEnd)) ? "C:" + v.from + "-" + v.to : "ON"; }
 function hourly_(s) { return +s.monthly ? 0 : (+s.wage || 0); }   // 勤務時間表の時給の欄（月給の人は出さない）
 function isTrue_(v) { return v === true || v === "TRUE" || v === "true"; }
+// 承認なしで出勤申請できる人か（2026-11-15 やっさん：既定は全員承認なし。経営者が「承認が必要」にした人だけ承認待ち）
+function selfOk_(s) { return !isTrue_((s || {}).needOk); }
 function ym_(s) { if (!/^\d{4}-\d{2}$/.test(String(s || ""))) throw new Error("bad_month"); return String(s); }

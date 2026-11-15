@@ -225,7 +225,7 @@ const CONFIG = {
 /* ============================================================
    共通
    ============================================================ */
-const SERVER_VERSION="2026-11-12.3";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
+const SERVER_VERSION="2026-11-15.1";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
 const TC_MODES={nearest:"四捨五入（15分未満は切り捨て、15分以上は30分扱い）",floor:"すべて切り捨て",ceil:"すべて切り上げ",favor:"出勤は切り上げ・退勤は切り捨て"};
 const WD = ["日","月","火","水","木","金","土"];
 const pad = n => String(n).padStart(2,"0");
@@ -418,7 +418,7 @@ function pendingOf(ym){
   const sh=Store.shiftOf(ym); if(sh.status!=="published") return [];
   const pubAt=String(sh.publishedAt||""), S=Store.settings, out=[];
   activeStaff().forEach(s=>{ const w=Store.wishesOf(ym)[s.id]; if(!w) return;
-    if(s.autoOk) return;   // 承認なしの人（ママ）は、足した日がそのままシフトに載るので承認待ちには出さない
+    if(!s.needOk) return;   // 承認が必要な人だけ承認待ちに出す（それ以外は足した日がそのままシフトに載る）
     const hasAt=Object.values(w.days||{}).some(x=>x&&x.at);   // 日ごとの時刻がある希望は、時刻のない日＝公開前の分
     Object.entries(w.days||{}).forEach(([d,v])=>{ if(!(v?.t==="o"||v?.t==="p")) return; if(sh.cells[`${d}_${s.id}`]) return;
       const when=v.at||(hasAt?"":String(w.updatedAt||"")); if(!when||when<=pubAt) return;
@@ -488,7 +488,7 @@ function vDayPeople(ym,d,me){
 function vWish(m){
   // 締切なし：当日まで出せる。一度送った日はスタッフは変えられない（変更は かよさんに連絡 → 管理者が代理入力で直す）
   const ym=state.wishMonth, {y,m:mo}=parseYM(ym), S=Store.settings, adm=Store.isAdmin, saved=Store.wishesOf(ym)[m.id];
-  const sentDays=saved?.days||{}, locked=d=>!adm&&!m.autoOk&&(sentDays[d]?.t==="o"||sentDays[d]?.t==="p"), past=d=>!adm&&`${ym}-${pad(d)}`<BIZ_TODAY;
+  const sentDays=saved?.days||{}, locked=d=>!adm&&m.needOk&&(sentDays[d]?.t==="o"||sentDays[d]?.t==="p"), past=d=>!adm&&`${ym}-${pad(d)}`<BIZ_TODAY;
   const editable=adm||ym>=BIZ_YM;
   if(!state.draftWish||state.draftWish.month!==ym||state.draftWish.staffId!==m.id){ state.draftWish={month:ym,staffId:m.id,days:{...sentDays},memo:adm?(saved?.memo||""):""}; state.draftDirty=false; }
   const W=state.draftWish, n=daysIn(y,mo), first=dow(y,mo,1), cells=[];
@@ -513,7 +513,7 @@ function vWish(m){
   return `<section class="card">
     ${vMonthNav("wm",ym,"の希望")}
     <div class="row space" style="margin:8px 0 10px"><span>${statusBadge(Store.shiftOf(ym).status)}</span><span class="note">${editable?"当日まで出せます":"過ぎた月です"}</span></div>
-    ${editable?`<p class="note" style="margin:0 0 8px"><b>入れる日をタップすると、自分の名前が入ります。</b>もう一度タップで <b style="color:var(--wish-p)">時間</b>（時間指定）、さらにタップで取り消し。何も押していない日は「入らない」扱いです。</p>${adm||m.autoOk?"":`<div class="hint" style="margin:0 0 8px">🔒 送信した日は、あとから変えたり消したりできません。<b>変更・取り消しは かよさんに連絡</b>してください（かよさんが直します）。</div>`}`:""}
+    ${editable?`<p class="note" style="margin:0 0 8px"><b>入れる日をタップすると、自分の名前が入ります。</b>もう一度タップで <b style="color:var(--wish-p)">時間</b>（時間指定）、さらにタップで取り消し。何も押していない日は「入らない」扱いです。</p>${adm||!m.needOk?`<div class="hint" style="margin:0 0 8px">送信した日はそのままシフト表に載ります（承認は不要）。取り消しや時間の変更も、ここでタップして送り直せば反映されます。</div>`:`<div class="hint" style="margin:0 0 8px">🔒 あなたの出勤申請は経営者の承認が必要です。送信した日は、あとから変えたり消したりできません。<b>変更・取り消しは かよさんに連絡</b>してください。</div>`}`:""}
     <div class="cal mc wishcal">${WD.map((w,i)=>`<div class="dh ${i===6?"sat":""} ${i===0?"sun":""}">${w}</div>`).join("")}${cells.join("")}</div>
     <div class="legend"><span>名前＝その日に入る人${pub?"（確定）":"（確定前は「出勤できる」と答えている人）"}</span><span><i style="background:var(--chip);box-shadow:inset 0 0 0 1.5px var(--accent)"></i>あなた</span><span><b style="color:var(--wish-p)">時間</b>＝時間指定</span></div>
     ${editable&&sel&&sv?.t==="p"&&!locked(sel)?`<div class="timebox"><input type="time" id="wFrom" data-wt="from" data-d="${sel}" value="${esc(sv.from||"10:00")}" aria-label="開始"><span>〜</span><input type="time" id="wTo" data-wt="to" data-d="${sel}" value="${esc(sv.to||"15:00")}" aria-label="終了"></div><p class="note">${mo}月${sel}日は この時間なら出勤できる、という指定です。</p>`:""}
@@ -707,13 +707,13 @@ function vWishList(){
     return `<tr><td><b>${esc(s.name)}</b><br><button class="btn ghost sm" data-act="viewAs" data-id="${esc(s.id)}">代理入力</button></td><td>${w?`<span class="badge pub">提出済</span><div class="note">${esc((w.updatedAt||"").slice(0,16).replace("T"," "))}</div>`:'<span class="badge">未提出</span>'}</td><td>${xs.length?xs.map(d=>`${d}日(${WD[dow(y,m,d)]})`).join("、"):"—"}</td><td>${ps.length?ps.join("<br>"):"—"}</td><td>${esc(w?.memo||"")}</td></tr>`; }).join("");
   const done=list.filter(s=>wishes[s.id]).length;
   return `<section class="card"><div class="row space">${vMonthNav("pm",ym)}<span class="badge ${done===list.length&&list.length?"pub":"col"}">提出 ${done}／${list.length}名</span></div>
-  <p class="note" style="margin:8px 0">希望は当日まで出せます。送った日はスタッフ本人は変えられないので、変更は「代理入力」から直してください。目安は毎月${S.deadlineDay}日（前月）。${S.notifyDeadline===true?"締切3日前と当日の朝9時に、未提出の人へ自動でLINEが届きます。":"締切のLINEは送らない設定です（「設定」で変えられます）。"}</p>
+  <p class="note" style="margin:8px 0">希望は当日まで出せます。送った日はそのままシフト表に載ります（「承認が必要」にした人だけ承認待ちになり、本人は変えられません。その人の変更は「代理入力」から）。目安は毎月${S.deadlineDay}日（前月）。${S.notifyDeadline===true?"締切3日前と当日の朝9時に、未提出の人へ自動でLINEが届きます。":"締切のLINEは送らない設定です（「設定」で変えられます）。"}</p>
   <div class="tbl"><table class="list"><thead><tr><th>スタッフ</th><th>提出</th><th>入れる日</th><th>時間指定</th><th>連絡事項</th></tr></thead><tbody>${rows||'<tr><td colspan="5" class="note">スタッフが登録されていません</td></tr>'}</tbody></table></div></section>`;
 }
 function vStaffAdmin(){
   const list=[...Store.staff].sort((a,b)=>(a.order??99)-(b.order??99)), e=state.editStaff;
   return `<section class="card"><h2>スタッフ<small>${list.length}名</small></h2>
-  <div class="people" style="margin-top:8px">${list.map(s=>`<div class="stf ${s.active===false?"inactive":""}"><div><div class="nm">${esc(s.name)} <span class="pill">${esc(shortName(s))}</span> <span class="note">${s.emp?esc(s.emp):""}</span></div><div class="mt">表示順 ${s.order??"-"}　${s.monthly?`月給 ${yen(s.monthly)}（固定）　`:s.wage?`時給 ${yen(s.wage)}　`:'<span style="color:var(--warn)">時給 未入力</span>　'}${s.rate&&!s.monthly?`ボトルバック ${pct(s.rate)}%　`:""}${s.drinkOn&&!s.monthly?"ドリンクバックあり　":""}${s.autoOk?"承認なしで載る　":""}${s.linked||s.userId?"LINE連携済み（通知が届きます）":"LINE未連携（本人がLINEから開いて登録すると連携されます）"}${s.active===false?"　／ <b>非表示（管理のみ）</b>":""}</div></div><div class="row"><button class="btn ghost sm" data-act="editStaff" data-id="${esc(s.id)}">編集</button><button class="btn ghost sm" data-act="viewAs" data-id="${esc(s.id)}">代理入力</button></div></div>`).join("")||'<div class="note">まだ登録がありません。</div>'}</div>
+  <div class="people" style="margin-top:8px">${list.map(s=>`<div class="stf ${s.active===false?"inactive":""}"><div><div class="nm">${esc(s.name)} <span class="pill">${esc(shortName(s))}</span> <span class="note">${s.emp?esc(s.emp):""}</span></div><div class="mt">表示順 ${s.order??"-"}　${s.monthly?`月給 ${yen(s.monthly)}（固定）　`:s.wage?`時給 ${yen(s.wage)}　`:'<span style="color:var(--warn)">時給 未入力</span>　'}${s.rate&&!s.monthly?`ボトルバック ${pct(s.rate)}%　`:""}${s.drinkOn&&!s.monthly?"ドリンクバックあり　":""}${s.needOk?'<b style="color:var(--warn)">承認が必要　</b>':""}${s.linked||s.userId?"LINE連携済み（通知が届きます）":"LINE未連携（本人がLINEから開いて登録すると連携されます）"}${s.active===false?"　／ <b>非表示（管理のみ）</b>":""}</div></div><div class="row"><button class="btn ghost sm" data-act="editStaff" data-id="${esc(s.id)}">編集</button><button class="btn ghost sm" data-act="viewAs" data-id="${esc(s.id)}">代理入力</button></div></div>`).join("")||'<div class="note">まだ登録がありません。</div>'}</div>
   <h3 style="margin:16px 0 8px;font-size:14px">${e?.id?"スタッフを編集":"スタッフを追加（経営者側で登録）"}</h3>
   <form class="f" id="stf"><input type="hidden" name="id" value="${esc(e?.id||"")}">
     <div class="kv"><label>名前<input type="text" name="name" id="sName" required maxlength="20" value="${esc(e?.name||"")}"></label><label>カレンダー表示名<span class="h">（2〜3文字）</span><input type="text" name="short" id="sShort" maxlength="4" value="${esc(e?.short||"")}" placeholder="例：田中"></label></div>
@@ -723,7 +723,7 @@ function vStaffAdmin(){
     <label class="inline"><input type="checkbox" name="bottleOn" id="sBottleOn" ${e?.rate?"checked":""} onchange="document.getElementById('sRateBox').style.display=this.checked?'':'none'">この人にボトルバックを見せる<span class="h">（「ボトル」のタブが出て、ボトル売上の歩合がお給料に入ります）</span></label>
     <label id="sRateBox" style="${e?.rate?"":"display:none"}">ボトルバックの歩合（%）<span class="h">（シャンパン・ワインの売価の何%）</span><input type="number" name="rate" id="sRate" inputmode="decimal" min="0" max="100" step="0.5" value="${e?.rate?esc(pct(e.rate)):""}" placeholder="例：10"></label>
     <label class="inline"><input type="checkbox" name="drinkOn" id="sDrinkOn" ${e?.drinkOn?"checked":""}>この人にドリンクバックを見せる<span class="h">（退勤のとき杯数を入れる欄が出ます。オフの人には見えません）</span></label>
-    <label class="inline"><input type="checkbox" name="autoOk" id="sAutoOk" ${e?.autoOk?"checked":""}>自分で出勤日を足したり休みにしたりできる（承認なしでシフト表に載る）<span class="h">（ママなど。オフの人は、送った日は変えられず、公開後に足した日は「承認待ち」になります）</span></label>
+    <label class="inline"><input type="checkbox" name="needOk" id="sNeedOk" ${e?.needOk?"checked":""}>この人の出勤申請は経営者の承認が必要<span class="h">（オンの人だけ、公開後に足した日が「承認待ち」になり、送った日を自分で変えられません。オフ＝全員の標準：足した日がそのままシフト表に載り、取り消しや時間の変更も自分でできます）</span></label>
     <label class="inline"><input type="checkbox" name="active" id="sActive" ${e?.active===false?"":"checked"}>シフト表・iPadの打刻一覧に表示する<span class="h">（管理だけで出勤しない人はオフ）</span></label>
     <label>メモ<span class="h">（経営者のみ閲覧）</span><input type="text" name="note" id="sNote" maxlength="100" value="${esc(e?.note||"")}"></label>
     ${e?.id?`<label>iPad暗証番号<span class="h">（${e.hasPin?"設定済み":"未設定"}。本人が設定できないときだけ、ここで4〜6桁を入れて保存）</span><input type="text" name="newpin" id="sPin" inputmode="numeric" maxlength="6" placeholder="空欄なら変更しない"></label>`:""}
@@ -819,7 +819,7 @@ app.addEventListener("click", async e=>{
     case "dayAll": { const d=state.sheetDay, v=t.dataset.v; writeCells(c=>{ activeStaff().forEach(s=>{ if(v) c[`${d}_${s.id}`]=v; else delete c[`${d}_${s.id}`]; }); }); break; }
     case "viewAs": state.proxyId=t.dataset.id; state.role="staff"; state.tab="wish"; state.draftWish=null; go(); toast(`${Store.staff.find(s=>s.id===t.dataset.id)?.name||""}さんとして入力中（代理）`); break;
     case "wishDay": { const d=+t.dataset.d, W=state.draftWish, cur=W.days[d]?.t; if(cur!=="o"&&cur!=="p") W.days[d]={t:"o"}; else if(cur==="o") W.days[d]={t:"p",from:Store.settings.openStart||"10:00",to:Store.settings.openEnd||"15:00"}; else delete W.days[d]; state.selDay=d; state.draftDirty=true; go(); break; }
-    case "sendWish": { const W=state.draftWish; W.memo=$("#wMemo")?.value||""; if(!Store.isAdmin&&!me()?.autoOk&&!confirm("送信した日は、あとから変えたり消したりできません（変更は かよさんに連絡）。送信しますか？")) break;
+    case "sendWish": { const W=state.draftWish; W.memo=$("#wMemo")?.value||""; if(!Store.isAdmin&&me()?.needOk&&!confirm("送信した日は、あとから変えたり消したりできません（変更は かよさんに連絡）。送信しますか？")) break;
       await busy(async()=>{ await Store.saveWish({month:W.month,staffId:W.staffId,days:W.days,memo:W.memo}); state.draftWish=null; state.draftDirty=false; toast("希望を送信しました"); }); break; }
     case "wishLocked": state.selDay=+t.dataset.d; go(); toast("送信済みの日です。変更は かよさんに連絡してください"); break;
     case "status": await busy(async()=>{ const sh={...Store.shiftOf(state.month)}; sh.cells={...sh.cells}; sh.status=t.dataset.v; await Store.saveShiftNow(sh); toast({published:Store.settings.notifyPublish===true?"シフトを公開し、スタッフにLINEで通知しました":"シフトを公開しました",editing:"受付を締め切りました",collecting:"希望受付を再開しました"}[sh.status]); }); break;
@@ -873,7 +873,7 @@ app.addEventListener("submit", async e=>{
   if(fid==="pinf"){ await busy(async()=>{ await Store.adminLogin(String(fd.get("pin")||"")); state.role="admin"; toast("管理者として登録しました"); }); }
   if(fid==="stf"){
     const id=fd.get("id")||("s_"+Date.now().toString(36)); const prev=Store.staff.find(s=>s.id===id)||{};
-    const s={id,name:(fd.get("name")||"").trim(),short:(fd.get("short")||"").trim(),emp:fd.get("emp")||"",order:+fd.get("order")||99,active:!!fd.get("active"),note:fd.get("note")||"",wage:Math.round(+fd.get("wage")||0),monthly:Math.round(+fd.get("monthly")||0),rate:fd.get("bottleOn")?(+fd.get("rate")||0)/100:0,drinkOn:!!fd.get("drinkOn"),autoOk:!!fd.get("autoOk")};
+    const s={id,name:(fd.get("name")||"").trim(),short:(fd.get("short")||"").trim(),emp:fd.get("emp")||"",order:+fd.get("order")||99,active:!!fd.get("active"),note:fd.get("note")||"",wage:Math.round(+fd.get("wage")||0),monthly:Math.round(+fd.get("monthly")||0),rate:fd.get("bottleOn")?(+fd.get("rate")||0)/100:0,drinkOn:!!fd.get("drinkOn"),needOk:!!fd.get("needOk")};
     const newpin=String(fd.get("newpin")||"").trim();
     if(!s.name) return;
     if(fd.get("bottleOn")&&!s.rate){ toast("ボトルバックの歩合（%）を入れてください","ng"); $("#sRate")?.focus(); return; }
