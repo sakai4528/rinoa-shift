@@ -156,66 +156,8 @@ function handle_(action, data, auth) {
       return { me: publicStaff_(s, true), staff: all.map(x => publicStaff_(x, isAdmin)) };
     }
 
-    case "saveWish": {
-      const sid = (isAdmin && data.staffId) ? data.staffId : (me && me.id);
-      if (!sid) throw new Error("not_registered");
-      const month = ym_(data.month);
-      // 2026-11-05 やっさん：締切なし（当日まで出せる）。一度出した日はスタッフは変えられない（変更は管理者が直す）
-      const prev = readAll_("wishes").find(r => r.month === month && r.staffId === sid);
-      const inDays = data.days || {};
-      let days = inDays, memo = String(data.memo || "").slice(0, 300), added = [], removed = [];
-      const free = !isAdmin && selfOk_(staff.find(s => s.id === sid) || {});   // 承認が必要な人（needOk）以外は、自分で足した日がそのまま載り、変更・休みも自分でできる
-      if (!isAdmin) {
-        const old = (prev && prev.days) || {}, today = bizDate_();
-        const isOn = v => v && (v.t === "o" || v.t === "p");
-        days = {};
-        Object.keys(old).forEach(d => { days[d] = old[d]; });   // 出した日はそのまま（消せない・変えられない）
-        if (free) Object.keys(old).forEach(d => {   // ママだけ：今日から先の日は、取り消し・時間の変更ができる
-          if (month + "-" + ("0" + d).slice(-2) < today || !isOn(old[d])) return;
-          const v = inDays[d];
-          if (!isOn(v)) { delete days[d]; removed.push(+d); return; }
-          const nv = v.t === "p" ? { t: "p", from: String(v.from || ""), to: String(v.to || "") } : { t: "o" };
-          if (nv.t !== old[d].t || (nv.t === "p" && (nv.from !== old[d].from || nv.to !== old[d].to))) { nv.at = nowStr_().slice(0, 16); days[d] = nv; added.push(+d); }
-        });
-        Object.keys(inDays).forEach(d => {
-          if (old[d] || !isOn(inDays[d])) return;
-          if (month + "-" + ("0" + d).slice(-2) < today) return;  // 過ぎた日は足せない
-          const v = inDays[d];
-          days[d] = v.t === "p" ? { t: "p", from: String(v.from || ""), to: String(v.to || "") } : { t: "o" };
-          days[d].at = nowStr_().slice(0, 16);   // いつ足したか（公開後に足した日は「承認待ち」になる）
-          added.push(+d);
-        });
-        const oldMemo = String((prev && prev.memo) || "");
-        const more = memo.trim();
-        memo = (oldMemo && more ? oldMemo + "\n" + more : (oldMemo || more)).slice(0, 600);   // 連絡事項は書き足すだけ
-        if (prev && !added.length && !removed.length && memo === oldMemo) return { wish: prev, added: [] };
-      }
-      const w = { month, staffId: sid, days, memo, updatedAt: nowStr_() };
-      upsert_("wishes", ["month", "staffId"], w);
-      let autoShift = null;
-      if (free && (added.length || removed.length)) {   // ママは、公開後に足した日・変えた日・休みにした日を、すぐシフトに反映する
-        const sh = readAll_("shifts").find(r => r.month === month);
-        if (sh && sh.status === "published") {
-          const cells = Object.assign({}, sh.cells || {});
-          added.forEach(d => { cells[d + "_" + sid] = autoCell_(days[d], settings); });
-          removed.forEach(d => { cells[d + "_" + sid] = "OFF"; });
-          autoShift = Object.assign({}, sh, { cells }); upsert_("shifts", ["month"], autoShift);
-        }
-      }
-      log_(auth, "saveWish", month + " " + sid + (added.length ? " +" + added.sort((a, b) => a - b).join(",") : ""));
-      if (settings.notifyWish && !isAdmin) {
-        const who = staff.find(s => s.id === sid);
-        const m = +month.slice(5);
-        const list = added.sort((a, b) => a - b).map(d => m + "/" + d + (days[d].t === "p" ? `(${days[d].from}〜${days[d].to})` : "")).join("、");
-        const offList = removed.sort((a, b) => a - b).map(d => m + "/" + d).join("、");
-        const shNow = readAll_("shifts").find(r => r.month === month);
-        const afterPub = shNow && shNow.status === "published" && added.length && !autoShift;
-        const autoNote = autoShift ? "\n※ そのままシフト表に載せました（承認は不要の人です）。" : "";
-        pushTo_(admins.map(a => a.userId), `【${settings.name}】${who ? who.name : ""}さんが${m}月の希望を${removed.length ? "変更" : prev ? "追加" : "提出"}しました。${list ? "\n入れる日：" + list : ""}${offList ? "\n休みにした日：" + offList : ""}${memo !== String((prev && prev.memo) || "") ? "\n連絡事項：" + memo.split("\n").pop() : ""}${afterPub ? "\n※ 公開後の追加です。管理画面の「シフト作成」に承認待ちとして出るので、「承認」か「見送り」を押してください。" : ""}${autoNote}`);
-      }
-      return autoShift ? { wish: w, added, shift: autoShift } : { wish: w, added };
-    }
-
+    case "saveWish":
+      return saveWish_(data, { sid: (isAdmin && data.staffId) ? data.staffId : (me && me.id), isAdmin, staff, admins, settings, auth });
     case "punch": {
       needMe();
       if ((data.type === "in" || data.type === "out") && !settings.phonePunch && !isAdmin) throw new Error("phone_punch_disabled");
@@ -865,11 +807,21 @@ function handleDevice_(action, data, device) {
       const st = todayStatus_(staff);
       return {
         version: VERSION, device: { id: device.id, name: device.name },
-        settings: { name: settings.name, eyebrow: settings.eyebrow, openStart: settings.openStart, openEnd: settings.openEnd, tcUnit: settings.tcUnit, tcMode: settings.tcMode, kioskPin: settings.kioskPin !== false,
+        settings: { name: settings.name, eyebrow: settings.eyebrow, openStart: settings.openStart, openEnd: settings.openEnd, tcUnit: settings.tcUnit, tcMode: settings.tcMode, kioskPin: settings.kioskPin !== false, closed: settings.closed || [], closedHol: settings.closedHol !== false, required: settings.required || [],
           allow: allowAmounts_(settings), allowFrom: settings.allowFrom || DEFAULT_SETTINGS.allowFrom, allowKinds: ALLOW_KINDS },
-        staff: staff.map(s => ({ id: s.id, name: s.name, short: s.short || "", order: +s.order || 99, hasPin: !!s.pin })).sort((a, b) => a.order - b.order),
-        today: st
+        staff: staff.map(s => ({ id: s.id, name: s.name, short: s.short || "", order: +s.order || 99, hasPin: !!s.pin, needOk: isTrue_(s.needOk) })).sort((a, b) => a.order - b.order),
+        today: st,
+        months: kioskMonths_(settings)
       };
+    }
+    case "kioskWish": {   // LINE のないスタッフが店舗端末から出勤申請を出す（本人の暗証番号で確認）
+      const s = staff.find(x => x.id === data.staffId); if (!s) throw new Error("bad_staff");
+      if (settings.kioskPin !== false) {
+        if (!s.pin) throw new Error("pin_not_set");
+        if (pinHash_(s.id, String(data.pin || "")) !== s.pin) throw new Error("bad_pin");
+      }
+      const r = saveWish_({ month: data.month, days: data.days || {}, memo: data.memo || "" }, { sid: s.id, isAdmin: false, staff, admins: readAll_("admins"), settings, auth: { userId: "device:" + device.id, name: s.name } });
+      return Object.assign(r, { months: kioskMonths_(settings) });
     }
     case "kioskCheck":   // 退勤の前に本人か確かめて、ドリンクの杯数を聞く人かを返す（iPadの一覧には載せない）
     case "kioskAllow":   // 手当のボタン（ボトル手当・同伴手当など）を今日の記録に入れる
@@ -895,6 +847,18 @@ function handleDevice_(action, data, device) {
     }
     default: throw new Error("unknown_action");
   }
+}
+/** 店舗端末に渡す月データ（今月・来月）：公開済みのシフトと、全員の希望（日付のみ） */
+function kioskMonths_(settings) {
+  const today = bizDate_(), p = today.split("-").map(Number);
+  const months = [today.slice(0, 7), fmt_(new Date(p[0], p[1], 1, 12), "yyyy-MM")];
+  const shifts = readAll_("shifts"), wishes = readAll_("wishes"), out = {};
+  months.forEach(ym => {
+    const sh = shifts.find(r => r.month === ym) || null;
+    const w = {}; wishes.filter(r => r.month === ym).forEach(r => { w[r.staffId] = r.days || {}; });
+    out[ym] = { status: sh ? (sh.status || "collecting") : "collecting", publishedAt: sh ? (sh.publishedAt || "") : "", cells: sh && sh.status === "published" ? (sh.cells || {}) : {}, wishes: w };
+  });
+  return out;
 }
 function pinHash_(sid, pin) {
   return Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, sid + ":" + pin));
@@ -964,6 +928,68 @@ function setExtras_(rec, src) {
 function extraText_(r) { return [r && +r.drinks ? "ドリンク" + r.drinks + "杯" : "", r && +r.douhan ? "同伴" : "", allowText_(r)].filter(Boolean).join("・"); }
 function recText_(r) { if (!r || !r.in) return "記録なし"; return r.in.slice(11, 16) + "〜" + (r.out ? r.out.slice(11, 16) : "未退勤") + (r.brk ? " 休憩" + r.brk + "分" : ""); }
 function whoName_(auth, staff) { const s = (staff || []).find(x => x.userId === auth.userId); return s ? s.name : (auth.name || "管理者"); }
+
+
+/** 希望の保存（LINE のアプリと店舗端末の両方から使う） */
+function saveWish_(data, c) {
+  const { sid, isAdmin, staff, admins, settings, auth } = c;
+  if (!sid) throw new Error("not_registered");
+  const month = ym_(data.month);
+  // 2026-11-05 やっさん：締切なし（当日まで出せる）。一度出した日はスタッフは変えられない（変更は管理者が直す）
+  const prev = readAll_("wishes").find(r => r.month === month && r.staffId === sid);
+  const inDays = data.days || {};
+  let days = inDays, memo = String(data.memo || "").slice(0, 300), added = [], removed = [];
+  const free = !isAdmin && selfOk_(staff.find(s => s.id === sid) || {});   // 承認が必要な人（needOk）以外は、自分で足した日がそのまま載り、変更・休みも自分でできる
+  if (!isAdmin) {
+    const old = (prev && prev.days) || {}, today = bizDate_();
+    const isOn = v => v && (v.t === "o" || v.t === "p");
+    days = {};
+    Object.keys(old).forEach(d => { days[d] = old[d]; });   // 出した日はそのまま（消せない・変えられない）
+    if (free) Object.keys(old).forEach(d => {   // ママだけ：今日から先の日は、取り消し・時間の変更ができる
+      if (month + "-" + ("0" + d).slice(-2) < today || !isOn(old[d])) return;
+      const v = inDays[d];
+      if (!isOn(v)) { delete days[d]; removed.push(+d); return; }
+      const nv = v.t === "p" ? { t: "p", from: String(v.from || ""), to: String(v.to || "") } : { t: "o" };
+      if (nv.t !== old[d].t || (nv.t === "p" && (nv.from !== old[d].from || nv.to !== old[d].to))) { nv.at = nowStr_().slice(0, 16); days[d] = nv; added.push(+d); }
+    });
+    Object.keys(inDays).forEach(d => {
+      if (old[d] || !isOn(inDays[d])) return;
+      if (month + "-" + ("0" + d).slice(-2) < today) return;  // 過ぎた日は足せない
+      const v = inDays[d];
+      days[d] = v.t === "p" ? { t: "p", from: String(v.from || ""), to: String(v.to || "") } : { t: "o" };
+      days[d].at = nowStr_().slice(0, 16);   // いつ足したか（公開後に足した日は「承認待ち」になる）
+      added.push(+d);
+    });
+    const oldMemo = String((prev && prev.memo) || "");
+    const more = memo.trim();
+    memo = (oldMemo && more ? oldMemo + "\n" + more : (oldMemo || more)).slice(0, 600);   // 連絡事項は書き足すだけ
+    if (prev && !added.length && !removed.length && memo === oldMemo) return { wish: prev, added: [] };
+  }
+  const w = { month, staffId: sid, days, memo, updatedAt: nowStr_() };
+  upsert_("wishes", ["month", "staffId"], w);
+  let autoShift = null;
+  if (free && (added.length || removed.length)) {   // ママは、公開後に足した日・変えた日・休みにした日を、すぐシフトに反映する
+    const sh = readAll_("shifts").find(r => r.month === month);
+    if (sh && sh.status === "published") {
+      const cells = Object.assign({}, sh.cells || {});
+      added.forEach(d => { cells[d + "_" + sid] = autoCell_(days[d], settings); });
+      removed.forEach(d => { cells[d + "_" + sid] = "OFF"; });
+      autoShift = Object.assign({}, sh, { cells }); upsert_("shifts", ["month"], autoShift);
+    }
+  }
+  log_(auth, "saveWish", month + " " + sid + (added.length ? " +" + added.sort((a, b) => a - b).join(",") : ""));
+  if (settings.notifyWish && !isAdmin) {
+    const who = staff.find(s => s.id === sid);
+    const m = +month.slice(5);
+    const list = added.sort((a, b) => a - b).map(d => m + "/" + d + (days[d].t === "p" ? `(${days[d].from}〜${days[d].to})` : "")).join("、");
+    const offList = removed.sort((a, b) => a - b).map(d => m + "/" + d).join("、");
+    const shNow = readAll_("shifts").find(r => r.month === month);
+    const afterPub = shNow && shNow.status === "published" && added.length && !autoShift;
+    const autoNote = autoShift ? "\n※ そのままシフト表に載せました（承認は不要の人です）。" : "";
+    pushTo_(admins.map(a => a.userId), `【${settings.name}】${who ? who.name : ""}さんが${m}月の希望を${removed.length ? "変更" : prev ? "追加" : "提出"}しました。${list ? "\n入れる日：" + list : ""}${offList ? "\n休みにした日：" + offList : ""}${memo !== String((prev && prev.memo) || "") ? "\n連絡事項：" + memo.split("\n").pop() : ""}${afterPub ? "\n※ 公開後の追加です。管理画面の「シフト作成」に承認待ちとして出るので、「承認」か「見送り」を押してください。" : ""}${autoNote}`);
+  }
+  return autoShift ? { wish: w, added, shift: autoShift } : { wish: w, added };
+}
 
 /* ---------- 月データ ---------- */
 function monthsFor_(months, me, isAdmin) {

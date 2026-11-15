@@ -36,6 +36,33 @@ h1,h2{margin:0;font-family:var(--f-disp);font-weight:700}
 .clock{text-align:right}
 .clock .t{font-family:var(--f-disp);font-size:64px;font-weight:900;line-height:1;font-variant-numeric:tabular-nums;letter-spacing:.02em}
 .clock .d{font-size:16px;color:var(--muted)}
+.tabs{display:flex;gap:8px;flex-wrap:wrap}
+.tabs button{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:10px 22px;font-size:18px;cursor:pointer;min-height:48px}
+.tabs button.on{background:var(--accent);color:#fff;border-color:var(--accent);font-weight:700}
+.mnav{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.mnav button{border:1px solid var(--line);background:var(--panel);border-radius:10px;padding:8px 18px;cursor:pointer;min-height:44px;font-size:18px}
+.mnav .m{font-family:var(--f-disp);font-size:24px;font-weight:700}
+.cal{display:grid;grid-template-columns:repeat(7,1fr);gap:4px}
+.cal .dh{text-align:center;font-size:14px;color:var(--muted);padding:2px 0}
+.cal .dh.sat{color:#3568B5}.cal .dh.sun{color:#C64B3C}
+.cal .d{min-height:96px;border:1px solid var(--line);border-radius:10px;padding:6px;background:var(--panel);display:flex;flex-direction:column;gap:3px;text-align:left;cursor:pointer;min-width:0}
+.cal .d.empty{border-color:transparent;background:transparent;cursor:default}
+.cal .d .top{display:flex;justify-content:space-between;align-items:center}
+.cal .d .n{font-size:16px;font-weight:700;width:26px;height:26px;display:inline-flex;align-items:center;justify-content:center;border-radius:50%}
+.cal .d.sat .n{color:#3568B5}.cal .d.sun .n,.cal .d.hol .n{color:#C64B3C}
+.cal .d.today{background:#FFF3CF;box-shadow:inset 0 0 0 2px var(--accent)}.cal .d.today .n{background:var(--accent);color:#fff!important}
+.cal .d.closed{background:var(--bg)}
+.cal .d.sel{outline:3px solid var(--accent);outline-offset:1px}
+.cal .d .cnt{font-size:13px;color:var(--muted);font-weight:700}
+.cal .d .names{display:flex;flex-direction:column;gap:2px;overflow:hidden}
+.cal .nm{font-size:13px;line-height:1.3;padding:1px 5px;border-radius:4px;background:var(--chip);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cal .nm.me{font-weight:900;box-shadow:inset 0 0 0 2px var(--accent);color:var(--accent-ink)}
+.cal .nm.pend{background:transparent;box-shadow:inset 0 0 0 2px var(--warn);color:var(--warn)}
+.cal .d.mine{background:var(--accent-tint)}
+.cal .d .chk{font-size:14px;font-weight:900;color:#fff;background:var(--accent);border-radius:999px;padding:2px 8px}
+.people{display:flex;flex-direction:column;gap:6px}
+.people .pr{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;padding:10px 14px;border:1px solid var(--line);border-radius:10px;font-size:18px}
+.people .pr .tm{color:var(--muted);font-size:16px}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
 .st{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:16px 16px 14px;text-align:left;cursor:pointer;display:flex;flex-direction:column;gap:6px;min-height:118px;box-shadow:0 1px 0 rgba(0,0,0,.02)}
 .st:active{transform:scale(.985)}
@@ -111,7 +138,25 @@ const app = $("#app");
 const esc = s => String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 let toastT; function toast(msg,cls,sub){ const t=$("#toast"); t.className="toast on "+(cls||""); t.innerHTML=esc(msg)+(sub?`<small>${esc(sub)}</small>`:""); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove("on"),3200); }
 
-const S = { key:null, data:null, error:null, modal:null, pin:"", busy:false, lastFetch:0, unlinkUI:false };
+const S = { key:null, data:null, error:null, modal:null, pin:"", busy:false, lastFetch:0, unlinkUI:false, tab:"tc", ym:null, selDay:null, wish:null };
+/* ---------- 日付（シフト表・希望用） ---------- */
+const bizNow=()=>new Date(Date.now()-6*3600e3);
+const ymd=d=>`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+const BIZ_TODAY=ymd(bizNow()), BIZ_YM=BIZ_TODAY.slice(0,7);
+const daysIn=(y,m)=>new Date(y,m,0).getDate(), dow=(y,m,d)=>new Date(y,m-1,d).getDay();
+const holCache={};
+function holidays(y){ if(holCache[y]) return holCache[y]; const set=new Set(), add=(m,d)=>set.add(`${m}-${d}`);
+  [[1,1],[2,11],[2,23],[4,29],[5,3],[5,4],[5,5],[8,11],[11,3],[11,23]].forEach(([m,d])=>add(m,d));
+  const nthMon=(m,n)=>{ const f=new Date(y,m-1,1).getDay(); return 1+((8-f)%7)+(n-1)*7; }; add(1,nthMon(1,2)); add(7,nthMon(7,3)); add(9,nthMon(9,3)); add(10,nthMon(10,2));
+  add(3,Math.floor(20.8431+0.242194*(y-1980)-Math.floor((y-1980)/4))); add(9,Math.floor(23.2488+0.242194*(y-1980)-Math.floor((y-1980)/4)));
+  [...set].forEach(k=>{ const [m,d]=k.split("-").map(Number); const dt=new Date(y,m-1,d); if(dt.getDay()===0){ let n=new Date(dt); do{ n.setDate(n.getDate()+1);}while(set.has(`${n.getMonth()+1}-${n.getDate()}`)); if(n.getFullYear()===y) add(n.getMonth()+1,n.getDate()); }});
+  for(let m=1;m<=12;m++) for(let d=2;d<daysIn(y,m);d++){ const dt=new Date(y,m-1,d); if(dt.getDay()===0||set.has(`${m}-${d}`)) continue; if(set.has(`${m}-${d-1}`)&&set.has(`${m}-${d+1}`)) add(m,d); }
+  holCache[y]=set; return set; }
+const isHol=(y,m,d)=>holidays(y).has(`${m}-${d}`);
+const isClosed=(y,m,d)=>{ const st=S.data.settings; return (st.closed||[]).includes(dow(y,m,d)) || (st.closedHol!==false && isHol(y,m,d)); };
+const cellBase=v=>String(v||"").split("|")[0];
+function cellTimes(v){ const b=cellBase(v), st=S.data.settings; if(!b||b==="OFF") return null; if(b.startsWith("C:")){ const [a,c]=b.slice(2).split("-"); return {s:a,e:c,cus:true}; } return {s:st.openStart,e:st.openEnd,cus:false}; }
+const monthLabel=ym=>{ const [y,m]=ym.split("-").map(Number); return `${y}年${m}月`; };
 try{ S.key=localStorage.getItem(KEY_LS)||null; }catch(e){}
 
 async function api(action,data,key){
@@ -120,7 +165,7 @@ async function api(action,data,key){
   if(!j.ok) throw new Error(j.error||"error");
   return j;
 }
-const ERR={undo_expired:"取り消せるのは打刻から15分以内です",not_out:"退勤はまだ押されていません",already_out:"退勤済みのため出勤は取り消せません",bad_device:"端末コードが違うか、無効になっています",pin_not_set:"暗証番号が未設定です。自分のLINEのアプリ「タイムカード」で設定してください",bad_pin:"暗証番号が違います",already_in:"すでに出勤しています",not_in:"出勤が押されていません",bad_response:"通信に失敗しました",unknown_action:"サーバーがまだ新しくなっていません（経営者に伝えてください）"};
+const ERR={closed:"受付が締め切られています",no_record:"記録がありません",undo_expired:"取り消せるのは打刻から15分以内です",not_out:"退勤はまだ押されていません",already_out:"退勤済みのため出勤は取り消せません",bad_device:"端末コードが違うか、無効になっています",pin_not_set:"暗証番号が未設定です。自分のLINEのアプリ「タイムカード」で設定してください",bad_pin:"暗証番号が違います",already_in:"すでに出勤しています",not_in:"出勤が押されていません",bad_response:"通信に失敗しました",unknown_action:"サーバーがまだ新しくなっていません（経営者に伝えてください）"};
 const errMsg=e=>ERR[String(e&&e.message||e)]||("エラー："+String(e&&e.message||e));
 // 手当のボタン（ボトル手当・シャンパン/ワイン手当・同伴手当・ゴルフ同伴手当）。サーバーが対応していて、使いはじめる月（標準 2026-12）になったら出す
 const ALLOW_KINDS=[["bottle","ボトル手当"],["champ","シャンパン・ワイン手当"],["douhan","同伴手当"],["golf","ゴルフ同伴手当"]];
@@ -153,13 +198,20 @@ function render(){
   const cards=D.staff.map(s=>{ const x=st[s.id]||{}; const cls= x.out?"done": x.in?"in": (D.settings.kioskPin&&!s.hasPin?"nopin":"");
     const pill= x.out?`退勤済 ${dropZero(x.in)}〜${dropZero(x.out)}`: x.in?`出勤中 ${dropZero(x.in)}〜`: (D.settings.kioskPin&&!s.hasPin?"暗証番号 未設定":"未出勤");
     return `<button class="st ${cls}" data-id="${esc(s.id)}"><span class="nm">${esc(s.name)}</span><span class="pill">${esc(pill)}</span><span class="sc">${esc(schedText(x.sched))}</span></button>`; }).join("");
-  app.innerHTML=`<header class="hdr"><div class="brand"><div class="eyebrow">${esc(D.settings.eyebrow||"TIME CARD")}</div><h1>${esc(D.settings.name)}　タイムカード</h1><div class="sub">自分の名前をタップ → 暗証番号 → 出勤／退勤</div></div>
+  if(!S.ym||!D.months||!D.months[S.ym]) S.ym=BIZ_YM;
+  const tabTitle={tc:"タイムカード",shift:"シフト表",wish:"出勤申請"}[S.tab];
+  const tabSub={tc:"自分の名前をタップ → 暗証番号 → 出勤／退勤",shift:"日をタップすると、その日に入る人が見られます",wish:"自分の名前をタップ → 暗証番号 → 入れる日をタップ → 送信"}[S.tab];
+  const body= S.tab==="shift"?shiftBody(D) : S.tab==="wish"?wishBody(D) : `<div class="grid">${cards||'<div class="note">スタッフが登録されていません。各自のLINEから名前を登録してもらってください。</div>'}</div>
+    <div class="legend"><span><i style="background:var(--ok)"></i>出勤中</span><span><i style="background:var(--accent-soft)"></i>退勤済み</span><span><i style="background:var(--warn-soft)"></i>暗証番号が未設定（本人のLINEで設定、または経営者が設定）</span></div>`;
+  app.innerHTML=`<header class="hdr"><div class="brand"><div class="eyebrow">${esc(D.settings.eyebrow||"TIME CARD")}</div><h1>${esc(D.settings.name)}　${tabTitle}</h1><div class="sub">${tabSub}</div></div>
     <div class="clock"><div class="t" id="clk">${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}</div><div class="d">${now.getFullYear()}年${now.getMonth()+1}月${now.getDate()}日（${WD[now.getDay()]}）</div></div></header>
-    <div class="grid">${cards||'<div class="note">スタッフが登録されていません。各自のLINEから名前を登録してもらってください。</div>'}</div>
-    <div class="legend"><span><i style="background:var(--ok)"></i>出勤中</span><span><i style="background:var(--accent-soft)"></i>退勤済み</span><span><i style="background:var(--warn-soft)"></i>暗証番号が未設定（本人のLINEで設定）</span></div>
+    <div class="tabs">${[["tc","タイムカード"],["shift","シフト表"],["wish","出勤申請"]].map(([k,l])=>`<button data-tab="${k}" class="${S.tab===k?"on":""}">${l}</button>`).join("")}</div>
+    ${body}
     <footer class="foot"><span>端末：${esc(D.device.name)}　／　${D.settings.tcUnit}分刻みで計算</span><span><a href="#" id="refresh">再読み込み</a>　|　<a href="#" id="unlink" style="opacity:.6">登録解除（経営者用）</a></span></footer>
     ${S.modal?renderModal():""}`;
   document.querySelectorAll(".st").forEach(b=>b.onclick=()=>openModal(b.dataset.id));
+  document.querySelectorAll("[data-tab]").forEach(b=>b.onclick=()=>{ S.tab=b.dataset.tab; S.selDay=null; S.modal=null; if(S.tab!=="wish") S.wish=null; render(); });
+  bindShiftWish();
   $("#refresh").onclick=e=>{e.preventDefault(); load();};
   $("#unlink").onclick=e=>{ e.preventDefault(); S.unlinkUI=true; S.modal=null; render(); };
   if(S.unlinkUI){ const ov=document.createElement("div"); ov.className="ov"; ov.id="ulov"; ov.innerHTML=`<div class="md"><div class="who"><b>端末の登録を解除</b><span>経営者向け</span></div><p class="note">解除すると打刻できなくなります。解除するには、この端末に登録した<b>端末コード</b>をもう一度入力してください（コードは経営者の管理画面にあります）。</p><form id="ulf" style="display:flex;flex-direction:column;gap:10px"><input id="ulkey" class="setupkey" placeholder="RINOA-XXXX-XXXX" autocomplete="off" autocapitalize="characters" spellcheck="false" style="width:100%;border:1px solid var(--line);border-radius:12px;padding:12px 14px;font-size:22px;letter-spacing:.1em;text-transform:uppercase;background:var(--bg);min-height:56px;text-align:center;font-family:ui-monospace,Menlo,monospace"><div class="err" id="ulerr"></div><div class="row"><button type="button" class="btn ghost" id="ulcancel" style="flex:1">やめる</button><button class="btn" style="flex:1;background:var(--ng);border-color:var(--ng)">解除する</button></div></form></div>`;
@@ -169,6 +221,77 @@ function render(){
     $("#ulf").onsubmit=ev=>{ ev.preventDefault(); const v=$("#ulkey").value.trim().toUpperCase(); if(v!==String(S.key).toUpperCase()){ $("#ulerr").textContent="端末コードが違います。解除できません。"; $("#ulkey").value=""; return; } S.unlinkUI=false; ov.remove(); S.key=null; try{localStorage.removeItem(KEY_LS);}catch(x){} S.data=null; render(); };
   }
   if(S.modal) bindModal();
+}
+/* ============================================================
+   シフト表（見る）と 出勤申請（LINE のないスタッフ用）
+   ============================================================ */
+function calHTML(ym, o){   // o: {meId, draft(自分の希望 days), editable, admin}
+  const D=S.data, M=(D.months||{})[ym]||{status:"collecting",cells:{},wishes:{}}, [y,m]=ym.split("-").map(Number), n=daysIn(y,m), first=dow(y,m,1), pub=M.status==="published", cells=[];
+  const staffById={}; D.staff.forEach(s=>staffById[s.id]=s);
+  for(let i=0;i<first;i++) cells.push('<div class="d empty"></div>');
+  for(let d=1;d<=n;d++){
+    const w=dow(y,m,d), hol=isHol(y,m,d), key=`${ym}-${pad(d)}`, closed=isClosed(y,m,d), isToday=key===BIZ_TODAY;
+    let people=[];
+    if(pub){ D.staff.forEach(s=>{ const t=cellTimes(M.cells[`${d}_${s.id}`]); if(t) people.push({s,t}); });
+      // 承認が必要な人の、公開後に足した日（まだマスが空）は承認待ちとして点線
+      D.staff.forEach(s=>{ if(!s.needOk) return; const v=(M.wishes[s.id]||{})[d]; if(v&&(v.t==="o"||v.t==="p")&&!M.cells[`${d}_${s.id}`]&&v.at&&v.at>String(M.publishedAt||"")) people.push({s,pend:true}); }); }
+    else D.staff.forEach(s=>{ const v=(M.wishes[s.id]||{})[d]; if(v&&(v.t==="o"||v.t==="p")) people.push({s,t:v.t==="p"?{s:v.from,e:v.to,cus:true}:cellTimes("ON")}); });
+    if(o.draft){ people=people.filter(p=>p.s.id!==o.meId); const v=o.draft[d]; if(v&&(v.t==="o"||v.t==="p")) people.unshift({s:staffById[o.meId],t:cellTimes("ON"),mine:true}); }
+    const mine=!!(o.draft&&o.draft[d]&&(o.draft[d].t==="o"||o.draft[d].t==="p"));
+    const MAX=6, names=people.slice(0,MAX).map(p=>`<span class="nm ${p.s.id===o.meId?"me":""} ${p.pend?"pend":""}">${esc(p.s.short||p.s.name.slice(0,2))}</span>`).join("")+(people.length>MAX?`<span class="nm">他${people.length-MAX}人</span>`:"");
+    const past=key<BIZ_TODAY;
+    cells.push(`<button class="d ${isToday?"today":""} ${w===6?"sat":""} ${w===0?"sun":""} ${hol?"hol":""} ${closed?"closed":""} ${mine?"mine":""} ${S.selDay===d?"sel":""}" data-day="${d}" ${(o.editable&&(closed||past))?"disabled":""}><span class="top"><span class="n">${d}</span>${closed?'<span class="cnt">定休</span>':mine?'<span class="chk">✓ 入る</span>':`<span class="cnt">${people.filter(p=>!p.pend).length}人</span>`}</span><span class="names">${closed?"":names}</span></button>`);
+  }
+  while(cells.length%7) cells.push('<div class="d empty"></div>');
+  return `<div class="cal">${WD.map((w,i)=>`<div class="dh ${i===6?"sat":""} ${i===0?"sun":""}">${w}</div>`).join("")}${cells.join("")}</div>`;
+}
+function monthNav(){ const ms=Object.keys(S.data.months||{}).sort(); const i=ms.indexOf(S.ym); return `<div class="mnav"><button data-mv="-1" ${i<=0?"disabled":""}>‹ 前の月</button><div class="m">${monthLabel(S.ym)}${S.ym===BIZ_YM?'<span class="note">　今月</span>':""}</div><button data-mv="1" ${i>=ms.length-1?"disabled":""}>次の月 ›</button></div>`; }
+function shiftBody(D){
+  const M=(D.months||{})[S.ym]||{status:"collecting",cells:{},wishes:{}}, pub=M.status==="published";
+  let detail="";
+  if(S.selDay){ const [y,m]=S.ym.split("-").map(Number), d=S.selDay, rows=[];
+    D.staff.forEach(s=>{ if(pub){ const t=cellTimes(M.cells[`${d}_${s.id}`]); if(t) rows.push(`<div class="pr"><b>${esc(s.name)}</b><span class="tm">${dropZero(t.s)}〜${dropZero(t.e)}</span></div>`); }
+      else { const v=(M.wishes[s.id]||{})[d]; if(v&&(v.t==="o"||v.t==="p")) rows.push(`<div class="pr"><b>${esc(s.name)}</b><span class="tm">${v.t==="p"?`${dropZero(v.from)}〜${dropZero(v.to)}`:"出勤できる"}</span></div>`); } });
+    detail=`<div class="card"><h2>${m}月${d}日（${WD[dow(y,m,d)]}）${pub?"の出勤":"の希望"}<span class="note">　${rows.length}人</span></h2><div class="people" style="margin-top:8px">${rows.join("")||'<div class="note">まだ誰も入っていません</div>'}</div></div>`; }
+  return `<div class="card">${monthNav()}<p class="note" style="margin:8px 0">${pub?"確定したシフトです。":"まだ公開前です。名前は「入れる」と申請している人です。"}</p>${calHTML(S.ym,{})}</div>${detail}`;
+}
+function wishBody(D){
+  const W=S.wish;
+  if(!W) return `<div class="card"><h2>出勤申請をする人</h2><p class="note">自分の名前をタップしてください。LINEを使っていない人も、ここから申請できます。</p>
+    <div class="grid" style="margin-top:10px">${D.staff.map(s=>`<button class="st ${D.settings.kioskPin&&!s.hasPin?"nopin":""}" data-wsel="${esc(s.id)}"><span class="nm">${esc(s.name)}</span><span class="pill">${D.settings.kioskPin&&!s.hasPin?"暗証番号 未設定":(s.needOk?"申請は承認制":"申請はそのまま載ります")}</span></button>`).join("")}</div></div>`;
+  const s=D.staff.find(x=>x.id===W.sid);
+  if(W.step==="pin") return `<div class="card" style="max-width:560px;margin:0 auto;width:100%"><h2>${esc(s.name)} さん</h2><p class="note">${s.hasPin?"暗証番号を入力してください":"暗証番号が未設定です。経営者に設定してもらってください"}</p>
+    <div class="pinbox">${[0,1,2,3,4,5].map(i=>`<i class="${i<S.pin.length?"on":""}"></i>`).join("")}</div>
+    <div class="pad">${[1,2,3,4,5,6,7,8,9].map(n=>`<button type="button" data-wk="${n}">${n}</button>`).join("")}<button type="button" class="fn" data-wk="C">クリア</button><button type="button" data-wk="0">0</button><button type="button" class="fn" data-wk="B">←</button></div>
+    <div class="row" style="margin-top:12px;display:flex;gap:10px"><button class="btn ghost" data-wcancel="1" style="flex:1">やめる</button><button class="btn" data-wok="1" style="flex:1" ${S.busy?"disabled":""}>つぎへ</button></div></div>`;
+  const M=(D.months||{})[W.ym]||{status:"collecting"}, pub=M.status==="published";
+  const cnt=Object.values(W.days).filter(v=>v&&(v.t==="o"||v.t==="p")).length;
+  return `<div class="card"><div class="mnav"><button data-wmv="-1" ${W.ym===Object.keys(D.months).sort()[0]?"disabled":""}>‹ 前の月</button><div class="m">${esc(s.name)} さん　${monthLabel(W.ym)}</div><button data-wmv="1" ${W.ym===Object.keys(D.months).sort().slice(-1)[0]?"disabled":""}>次の月 ›</button></div>
+    <p class="note" style="margin:8px 0"><b>入れる日をタップすると「✓ 入る」になります。</b>もう一度タップで取り消し。${s.needOk?"あなたの申請は経営者の承認のあとシフト表に載ります。":"送信するとそのままシフト表に載ります。"}過ぎた日と定休日は選べません。</p>
+    ${calHTML(W.ym,{meId:W.sid,draft:W.days,editable:true})}
+    <div class="row" style="margin-top:14px;display:flex;gap:10px;align-items:center"><span class="note" style="flex:1">入れる日：<b style="font-size:20px">${cnt}</b> 日${W.dirty?"　（未送信の変更があります）":""}</span><button class="btn ghost" data-wcancel="1">やめる</button><button class="btn" data-wsend="1" ${S.busy||!W.dirty?"disabled":""} style="min-width:200px">送信する</button></div></div>`;
+}
+let wishIdle;
+function touchWish(){ clearTimeout(wishIdle); wishIdle=setTimeout(()=>{ if(S.tab==="wish"){ S.wish=null; S.pin=""; render(); } },120000); }
+function bindShiftWish(){
+  document.querySelectorAll("[data-mv]").forEach(b=>b.onclick=()=>{ const ms=Object.keys(S.data.months||{}).sort(); const i=ms.indexOf(S.ym)+(+b.dataset.mv); if(ms[i]){ S.ym=ms[i]; S.selDay=null; render(); } });
+  if(S.tab==="shift") document.querySelectorAll(".cal .d[data-day]").forEach(b=>b.onclick=()=>{ S.selDay=S.selDay===+b.dataset.day?null:+b.dataset.day; render(); });
+  if(S.tab!=="wish") return;
+  document.querySelectorAll("[data-wsel]").forEach(b=>b.onclick=()=>{ S.wish={sid:b.dataset.wsel,step:"pin",ym:BIZ_YM,days:{},dirty:false}; S.pin=""; touchWish(); render(); });
+  document.querySelectorAll("[data-wk]").forEach(b=>b.onclick=()=>{ const k=b.dataset.wk; if(k==="C") S.pin=""; else if(k==="B") S.pin=S.pin.slice(0,-1); else if(S.pin.length<6) S.pin+=k; touchWish(); document.querySelectorAll(".pinbox i").forEach((el,i)=>el.classList.toggle("on",i<S.pin.length)); });
+  document.querySelectorAll("[data-wcancel]").forEach(b=>b.onclick=()=>{ S.wish=null; S.pin=""; render(); });
+  const ok=document.querySelector("[data-wok]"); if(ok) ok.onclick=async()=>{ const D=S.data, W=S.wish; if(D.settings.kioskPin&&S.pin.length<4){ toast("暗証番号を入力してください","ng"); return; }
+    S.busy=true; render();
+    try{ await api("kioskCheck",{staffId:W.sid,pin:S.pin}); W.pin=S.pin; W.step="days"; const M=(D.months||{})[W.ym]||{wishes:{}}; W.days={...((M.wishes||{})[W.sid]||{})}; W.dirty=false; }
+    catch(e){ toast(errMsg(e),"ng"); S.pin=""; }
+    S.busy=false; touchWish(); render(); };
+  document.querySelectorAll("[data-wmv]").forEach(b=>b.onclick=()=>{ const W=S.wish, ms=Object.keys(S.data.months||{}).sort(), i=ms.indexOf(W.ym)+(+b.dataset.wmv); if(!ms[i]) return; if(W.dirty&&!confirm("送信していない変更があります。月を変えると消えます。よろしいですか？")) return; W.ym=ms[i]; const M=S.data.months[W.ym]; W.days={...((M.wishes||{})[W.sid]||{})}; W.dirty=false; touchWish(); render(); });
+  if(S.wish&&S.wish.step==="days") document.querySelectorAll(".cal .d[data-day]").forEach(b=>b.onclick=()=>{ const W=S.wish, d=+b.dataset.day, v=W.days[d]; if(v&&(v.t==="o"||v.t==="p")) delete W.days[d]; else W.days[d]={t:"o"}; W.dirty=true; touchWish(); render(); });
+  const send=document.querySelector("[data-wsend]"); if(send) send.onclick=async()=>{ const W=S.wish, s=S.data.staff.find(x=>x.id===W.sid); S.busy=true; render();
+    try{ const r=await api("kioskWish",{staffId:W.sid,pin:W.pin,month:W.ym,days:W.days}); if(r.months) S.data.months=r.months; S.wish=null; S.pin="";
+      toast(`${s.name} さん　出勤申請を送りました`,"ok",s.needOk?"経営者の承認のあとシフト表に載ります":"シフト表に載りました"); S.tab="shift"; S.ym=W.ym; }
+    catch(e){ toast(errMsg(e),"ng"); }
+    S.busy=false; render(); };
 }
 let idleT;
 function openModal(id){ const x=(S.data.today.status[id]||{}); S.modal={id,drinks:0,douhan:!!+x.douhan||/\|[^|]*d/.test(String(x.sched||""))}; S.pin=""; render(); clearTimeout(idleT); idleT=setTimeout(()=>{ S.modal=null; render(); },45000); }
