@@ -14,7 +14,7 @@
  *   4. デプロイ → 新しいデプロイ → ウェブアプリ（実行ユーザー: 自分 / アクセス: 全員）
  */
 
-const VERSION = "2026-11-15.1";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
+const VERSION = "2026-11-15.2";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
 const TZ = "Asia/Tokyo";
 const PROP = PropertiesService.getScriptProperties();
 
@@ -34,8 +34,15 @@ const DEFAULT_SETTINGS = {
   drinkBack: 100,        // ドリンク1杯ごとのバック（円）。杯数は退勤のときに本人が入れる（2026-10-28 やっさん）
   douhanHours: 1,        // 同伴1回で足す時間（時給の何時間分か）
   saleKinds: ["シャンパン", "ワイン"],
-  saleTax: 0             // ボトルの値段は税込みで入れ、歩合も税込みに掛ける（0.1 にすると税抜き＝税込÷1.1 に掛ける）
+  saleTax: 0,            // ボトルの値段は税込みで入れ、歩合も税込みに掛ける（0.1 にすると税抜き＝税込÷1.1 に掛ける）
+  allowFrom: "2026-12",  // 手当のボタン（ボトル手当・シャンパン/ワイン手当・同伴手当・ゴルフ同伴手当）を使いはじめる月（2026-11-15 やっさん：12月から）
+  allow: { bottle: 0, champ: 0, douhan: 0, golf: 0 }   // 手当の金額（円／1回）。0 は払わない。同伴手当が0のときは今までどおり時給×douhanHours
 };
+// 手当の種類（打刻の記録 days[d].allow = { bottle: 回数, ... }）。同伴手当とゴルフ同伴手当は「時給の分」、ボトル手当とシャンパン・ワイン手当は「歩合・バックの分」に入る
+const ALLOW_KINDS = [["bottle", "ボトル手当"], ["champ", "シャンパン・ワイン手当"], ["douhan", "同伴手当"], ["golf", "ゴルフ同伴手当"]];
+function allowAmounts_(S) { const o = {}; ALLOW_KINDS.forEach(([k]) => { o[k] = Math.max(0, Math.round(+((S.allow || {})[k]) || 0)); }); return o; }
+function cleanAllow_(a) { const o = {}; ALLOW_KINDS.forEach(([k]) => { const n = Math.min(99, Math.max(0, Math.floor(+(a && a[k]) || 0))); if (n) o[k] = n; }); return Object.keys(o).length ? o : null; }
+function allowText_(r) { const a = r && r.allow; return a ? ALLOW_KINDS.filter(([k]) => +a[k] > 0).map(([k, l]) => l + (a[k] > 1 ? a[k] + "回" : "")).join("・") : ""; }
 const DAY_START_HOUR = 6;   // 朝6時までは前の日の営業として扱う
 
 const SHEETS = {
@@ -470,6 +477,7 @@ function computePay_(month) {
   const tax = +S.saleTax || 0;
   const drinkBack = S.drinkBack === undefined || S.drinkBack === "" ? 100 : +S.drinkBack || 0;
   const douhanH = S.douhanHours === undefined || S.douhanHours === "" ? 1 : +S.douhanHours || 0;
+  const AMT = allowAmounts_(S);   // 手当の金額（円／1回）
   const staff = readAll_("staff");
   const tcs = readAll_("timecards").filter(r => r.month === month);
   const sh = readAll_("shifts").find(r => r.month === month);
@@ -481,9 +489,11 @@ function computePay_(month) {
     const doc = tcs.find(r => r.staffId === s.id) || { days: {} };
     const kd = kstyleDays_(ks, s.id), kdr = kstyleDrinks_(ks, s.id);
     let days = 0, mins = 0, night = 0, planMins = 0, drinks = 0, douhan = 0;
+    const allow = { bottle: 0, champ: 0, douhan: 0, golf: 0 };   // 手当の回数（ボタンで記録）
     for (let d = 1; d <= n; d++) {
       const rec = (doc.days || {})[d];
       let w = recMins_(rec, S), plan = false;
+      if (rec && rec.allow) ALLOW_KINDS.forEach(([k]) => { allow[k] += Math.floor(+rec.allow[k] || 0); });
       if (rec && rec.in) { drinks += +rec.drinks || 0; douhan += +rec.douhan ? 1 : 0; }
       else drinks += +kdr[d] || 0;
       if (!w && kd[d]) w = { total: Math.round(kd[d] * 60), night: 0 };   // 打刻がない日は K-style（R8）の時間
@@ -494,23 +504,34 @@ function computePay_(month) {
     const wage = +s.wage || 0, rate = +s.rate || 0, monthly = +s.monthly || 0;   // 月給の人は、働いた時間に関係なく月給そのまま
     const mine = bottles.filter(b => b.staffId === s.id);
     const salesTotal = mine.reduce((t, b) => t + b.price * b.qty, 0);
-    const douhanPay = monthly ? 0 : Math.round(wage * douhanH * douhan);
-    const wagePay = monthly ? monthly : Math.round(wage * mins / 60 + wage * prem * night / 60) + douhanPay;
+    // 同伴：同伴手当の金額が入っていれば 金額×回数（ボタンの回数か、同伴の印の日数の多い方）。入っていなければ今までどおり 時給×douhanHours×回数（月給の人は無し）
+    const douhanN = Math.max(allow.douhan, douhan);
+    const douhanPay = AMT.douhan > 0 ? AMT.douhan * douhanN : (monthly ? 0 : Math.round(wage * douhanH * douhan));
+    // 手当（1回いくら）。月給の人にも付く（旧表でもママにゴルフ・ボトル手当の行があった）
+    const allowPay = { bottle: AMT.bottle * allow.bottle, champ: AMT.champ * allow.champ, douhan: douhanPay, golf: AMT.golf * allow.golf };
+    const wagePay = (monthly ? monthly : Math.round(wage * mins / 60 + wage * prem * night / 60)) + douhanPay + allowPay.golf;
     const drinkPay = monthly ? 0 : drinks * drinkBack;   // 月給の人は月給だけ（ドリンクバック・歩合はつけない）
     const salesNet = Math.round(salesTotal / (1 + tax));
     const commission = monthly ? 0 : Math.round(salesNet * rate);
+    const allowTotal = allowPay.bottle + allowPay.champ + allowPay.douhan + allowPay.golf;
     return { staffId: s.id, name: s.name, days, hours: Math.round(mins / 6) / 10, nightHours: Math.round(night / 6) / 10, planHours: Math.round(planMins / 6) / 10,
-      wage, monthly, rate, wagePay, douhan, douhanPay, drinks, drinkPay, salesTotal, salesNet, bottles: mine.reduce((t, b) => t + b.qty, 0), commission, total: wagePay + drinkPay + commission };
-  }).filter(r => r.days || r.salesTotal || r.drinks);
+      wage, monthly, rate, wagePay, douhan: douhanN, douhanPay, drinks, drinkPay, salesTotal, salesNet, bottles: mine.reduce((t, b) => t + b.qty, 0), commission,
+      allow, allowPay, allowTotal, bottlePay: allowPay.bottle, champPay: allowPay.champ, golfPay: allowPay.golf,
+      total: wagePay + drinkPay + commission + allowPay.bottle + allowPay.champ };
+  }).filter(r => r.days || r.salesTotal || r.drinks || r.allowTotal);
   const sum = k => rows.reduce((t, r) => t + r[k], 0);
-  return { month, staff: rows, fixed: sum("wagePay"), variable: sum("commission") + sum("drinkPay"), drinkPay: sum("drinkPay"), drinks: sum("drinks"), douhan: sum("douhan"), douhanPay: sum("douhanPay"), drinkBack, douhanHours: douhanH, total: sum("total"), hours: Math.round(sum("hours") * 10) / 10, salesTotal: sum("salesTotal"),
-    salesNet: sum("salesNet"), saleTax: tax, noWage: rows.filter(r => r.hours && !r.wage && !r.monthly).map(r => r.name), nightPremium: prem, basis: "シフト表からの見込み（打刻があれば打刻、なければK-style（R8）の時間、なければ公開済みシフトの予定。同伴は時給1時間分・ドリンクは1杯" + drinkBack + "円）。freeeの給与とは別" };
+  const allowNote = ALLOW_KINDS.filter(([k]) => AMT[k] > 0).map(([k, l]) => l + AMT[k] + "円").join("・");
+  return { month, staff: rows, fixed: sum("wagePay"), variable: sum("commission") + sum("drinkPay") + sum("bottlePay") + sum("champPay"), commission: sum("commission"), drinkPay: sum("drinkPay"), drinks: sum("drinks"), douhan: sum("douhan"), douhanPay: sum("douhanPay"),
+    bottlePay: sum("bottlePay"), champPay: sum("champPay"), golfPay: sum("golfPay"), allowTotal: sum("allowTotal"), allowAmounts: AMT, allowFrom: S.allowFrom || DEFAULT_SETTINGS.allowFrom,
+    drinkBack, douhanHours: douhanH, total: sum("total"), hours: Math.round(sum("hours") * 10) / 10, salesTotal: sum("salesTotal"),
+    salesNet: sum("salesNet"), saleTax: tax, noWage: rows.filter(r => r.hours && !r.wage && !r.monthly).map(r => r.name), nightPremium: prem,
+    basis: "シフト表からの見込み（打刻があれば打刻、なければK-style（R8）の時間、なければ公開済みシフトの予定。同伴は" + (AMT.douhan > 0 ? "1回" + AMT.douhan + "円" : "時給" + douhanH + "時間分") + "・ドリンクは1杯" + drinkBack + "円" + (allowNote ? "・手当：" + allowNote : "") + "）。freeeの給与とは別" };
 }
 // 経営ボード（rinoa-order）が読むシート。fixed＝時給の分（同伴を含む・固定費）、variable＝歩合とドリンクバックの分（変動費）
 function savePayroll_(month) {
   const p = computePay_(month);
   upsert_("payroll", ["month"], { month, fixed: p.fixed, variable: p.variable, total: p.total, hours: p.hours, salesTotal: p.salesTotal, basis: p.basis, updatedAt: nowStr_(),
-    detail: p.staff.map(r => ({ name: r.name, hours: r.hours, nightHours: r.nightHours, wagePay: r.wagePay, douhan: r.douhan, drinks: r.drinks, drinkPay: r.drinkPay, salesTotal: r.salesTotal, salesNet: r.salesNet, commission: r.commission, total: r.total })) });
+    detail: p.staff.map(r => ({ name: r.name, hours: r.hours, nightHours: r.nightHours, wagePay: r.wagePay, douhan: r.douhan, drinks: r.drinks, drinkPay: r.drinkPay, salesTotal: r.salesTotal, salesNet: r.salesNet, commission: r.commission, allow: r.allow, allowPay: r.allowPay, total: r.total })) });
   return p;
 }
 function payrollJob() {
@@ -830,7 +851,7 @@ function todayStatus_(staff) {
   staff.forEach(s => {
     const t = tcs.find(r => r.staffId === s.id); const rec = t && t.days && t.days[day];
     const cell = shift && shift.status === "published" && shift.cells ? shift.cells[day + "_" + s.id] || "" : "";
-    out[s.id] = { in: rec && rec.in ? rec.in.slice(11, 16) : "", out: rec && rec.out ? rec.out.slice(11, 16) : "", brk: rec ? (+rec.brk || 0) : 0, douhan: rec && +rec.douhan ? 1 : 0, sched: cell };
+    out[s.id] = { in: rec && rec.in ? rec.in.slice(11, 16) : "", out: rec && rec.out ? rec.out.slice(11, 16) : "", brk: rec ? (+rec.brk || 0) : 0, douhan: rec && +rec.douhan ? 1 : 0, allow: (rec && rec.allow) || {}, sched: cell };
   });
   return { date: today, status: out, serverTime: fmt_(now, "HH:mm") };
 }
@@ -844,12 +865,14 @@ function handleDevice_(action, data, device) {
       const st = todayStatus_(staff);
       return {
         version: VERSION, device: { id: device.id, name: device.name },
-        settings: { name: settings.name, eyebrow: settings.eyebrow, openStart: settings.openStart, openEnd: settings.openEnd, tcUnit: settings.tcUnit, tcMode: settings.tcMode, kioskPin: settings.kioskPin !== false },
+        settings: { name: settings.name, eyebrow: settings.eyebrow, openStart: settings.openStart, openEnd: settings.openEnd, tcUnit: settings.tcUnit, tcMode: settings.tcMode, kioskPin: settings.kioskPin !== false,
+          allow: allowAmounts_(settings), allowFrom: settings.allowFrom || DEFAULT_SETTINGS.allowFrom, allowKinds: ALLOW_KINDS },
         staff: staff.map(s => ({ id: s.id, name: s.name, short: s.short || "", order: +s.order || 99, hasPin: !!s.pin })).sort((a, b) => a.order - b.order),
         today: st
       };
     }
     case "kioskCheck":   // 退勤の前に本人か確かめて、ドリンクの杯数を聞く人かを返す（iPadの一覧には載せない）
+    case "kioskAllow":   // 手当のボタン（ボトル手当・同伴手当など）を今日の記録に入れる
     case "kioskPunch": {
       const s = staff.find(x => x.id === data.staffId); if (!s) throw new Error("bad_staff");
       if (settings.kioskPin !== false) {
@@ -857,12 +880,17 @@ function handleDevice_(action, data, device) {
         if (pinHash_(s.id, String(data.pin || "")) !== s.pin) throw new Error("bad_pin");
       }
       if (action === "kioskCheck") return { drinkOn: isTrue_(s.drinkOn) };
+      if (action === "kioskAllow") {
+        const r = punch_(s, { type: "allow", allow: data.allow || {} }, "kiosk:" + device.id);
+        log_({ userId: "device:" + device.id }, "kioskAllow", s.name + " " + (allowText_((r.timecard.days || {})[String(+bizDate_().slice(8))]) || "なし"));
+        return Object.assign(r, { today: todayStatus_(staff) });
+      }
       if (!["in", "out", "undoIn", "undoOut"].includes(data.type)) throw new Error("bad_type");
       const r = punch_(s, data, "kiosk:" + device.id);
       log_({ userId: "device:" + device.id }, "kioskPunch:" + data.type, s.name);
       const today = todayStatus_(staff);
       const day = String(+bizDate_().slice(8)); const rec = (r.timecard.days || {})[day];
-      if (today.status[s.id]) { today.status[s.id].in = rec && rec.in ? rec.in.slice(11, 16) : ""; today.status[s.id].out = rec && rec.out ? rec.out.slice(11, 16) : ""; today.status[s.id].brk = rec ? (+rec.brk || 0) : 0; today.status[s.id].douhan = rec && +rec.douhan ? 1 : 0; }
+      if (today.status[s.id]) { today.status[s.id].in = rec && rec.in ? rec.in.slice(11, 16) : ""; today.status[s.id].out = rec && rec.out ? rec.out.slice(11, 16) : ""; today.status[s.id].brk = rec ? (+rec.brk || 0) : 0; today.status[s.id].douhan = rec && +rec.douhan ? 1 : 0; today.status[s.id].allow = (rec && rec.allow) || {}; }
       return Object.assign(r, { today });
     }
     default: throw new Error("unknown_action");
@@ -890,6 +918,12 @@ function punch_(staffRow, data, via) {
     if (!r || !r.in) throw new Error("not_in");
     r.out = stamp; r.brk = Math.max(0, +data.brk || 0); r.viaOut = via;
     setExtras_(r, isTrue_(staffRow.drinkOn) ? data : { douhan: data.douhan });   // ドリンクは経営者が設定した人だけ
+  } else if (data.type === "allow") {   // 手当のボタン（今日の記録に回数を入れる。出勤を押してから）
+    const r = doc.days[day];
+    if (!r || !r.in) throw new Error("not_in");
+    const before = extraText_(r);
+    setExtras_(r, { drinks: r.drinks, douhan: r.douhan, allow: data.allow || {} });
+    if (extraText_(r) !== before) addEdit_(doc, day, staffRow.name + "（本人）", "手当 " + (before || "なし") + " → " + (extraText_(r) || "なし"));
   } else if (data.type === "fixOut") {
     const r = doc.days[day];
     if (!r || !r.in) throw new Error("not_in");
@@ -920,13 +954,14 @@ function punch_(staffRow, data, via) {
 function addEdit_(doc, day, by, what) {
   doc.edits = (doc.edits || []).concat([{ at: nowStr_().slice(0, 16), day: String(+day), by, what }]).slice(-300);
 }
-// ドリンクの杯数（0〜99）と同伴（あり＝1）を記録に入れる
+// ドリンクの杯数（0〜99）と同伴（あり＝1）と手当の回数（allow）を記録に入れる。同伴手当が1回以上なら同伴の印も付ける
 function setExtras_(rec, src) {
   const dr = Math.min(99, Math.max(0, Math.floor(+src.drinks || 0)));
   if (dr) rec.drinks = dr; else delete rec.drinks;
-  if (src.douhan === true || +src.douhan > 0) rec.douhan = 1; else delete rec.douhan;
+  if (src.allow !== undefined) { const a = cleanAllow_(src.allow); if (a) rec.allow = a; else delete rec.allow; }
+  if (src.douhan === true || +src.douhan > 0 || (rec.allow && +rec.allow.douhan > 0)) rec.douhan = 1; else delete rec.douhan;
 }
-function extraText_(r) { return [r && +r.drinks ? "ドリンク" + r.drinks + "杯" : "", r && +r.douhan ? "同伴" : ""].filter(Boolean).join("・"); }
+function extraText_(r) { return [r && +r.drinks ? "ドリンク" + r.drinks + "杯" : "", r && +r.douhan ? "同伴" : "", allowText_(r)].filter(Boolean).join("・"); }
 function recText_(r) { if (!r || !r.in) return "記録なし"; return r.in.slice(11, 16) + "〜" + (r.out ? r.out.slice(11, 16) : "未退勤") + (r.brk ? " 休憩" + r.brk + "分" : ""); }
 function whoName_(auth, staff) { const s = (staff || []).find(x => x.userId === auth.userId); return s ? s.name : (auth.name || "管理者"); }
 
@@ -976,6 +1011,8 @@ function sanitizeSettings_(s) {
   if (s.nightExtra !== undefined) o.nightExtra = Math.min(1, Math.max(0, +s.nightExtra || 0));
   if (s.drinkBack !== undefined) o.drinkBack = Math.min(10000, Math.max(0, Math.round(+s.drinkBack || 0)));
   if (s.douhanHours !== undefined) o.douhanHours = Math.min(5, Math.max(0, +s.douhanHours || 0));
+  if (/^\d{4}-\d{2}$/.test(String(s.allowFrom || ""))) o.allowFrom = s.allowFrom;
+  if (s.allow && typeof s.allow === "object") { o.allow = {}; ALLOW_KINDS.forEach(([k]) => { o.allow[k] = Math.min(100000, Math.max(0, Math.round(+s.allow[k] || 0))); }); }
   return o;
 }
 

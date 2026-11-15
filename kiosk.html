@@ -83,6 +83,9 @@ h1,h2{margin:0;font-family:var(--f-disp);font-weight:700}
 .cnt b{font-family:var(--f-disp);font-size:44px;min-width:80px;text-align:center;font-variant-numeric:tabular-nums}
 .dh{display:flex;align-items:center;justify-content:center;gap:10px;min-height:52px;border:1px solid var(--line);border-radius:12px;background:var(--panel);font-size:18px;font-weight:700;cursor:pointer;color:var(--ink)}
 .dh.on{background:#EFDDF0;color:#7E3F7A;border-color:#7E3F7A}
+.arow{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:17px;font-weight:700;padding:6px 0;border-bottom:1px solid var(--line)}.arow small{display:block;font-weight:400;font-size:12px;opacity:.7}
+.cnt.sm button{width:50px;height:50px;font-size:28px}.cnt.sm b{font-size:30px;min-width:52px}
+.al{min-height:52px;border:1px solid var(--line);border-radius:12px;background:var(--panel);font-size:17px;font-weight:700;cursor:pointer;color:var(--ink);width:100%}
 .toast{position:fixed;left:50%;top:18%;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:22px 34px;border-radius:20px;font-size:26px;font-family:var(--f-disp);font-weight:700;box-shadow:var(--shadow);opacity:0;pointer-events:none;transition:opacity .2s;z-index:50;text-align:center;max-width:90vw}
 .toast.on{opacity:1}
 .toast.ok{background:var(--ok)}.toast.ng{background:var(--ng)}
@@ -117,8 +120,12 @@ async function api(action,data,key){
   if(!j.ok) throw new Error(j.error||"error");
   return j;
 }
-const ERR={undo_expired:"取り消せるのは打刻から15分以内です",not_out:"退勤はまだ押されていません",already_out:"退勤済みのため出勤は取り消せません",bad_device:"端末コードが違うか、無効になっています",pin_not_set:"暗証番号が未設定です。自分のLINEのアプリ「タイムカード」で設定してください",bad_pin:"暗証番号が違います",already_in:"すでに出勤しています",not_in:"出勤が押されていません",bad_response:"通信に失敗しました"};
+const ERR={undo_expired:"取り消せるのは打刻から15分以内です",not_out:"退勤はまだ押されていません",already_out:"退勤済みのため出勤は取り消せません",bad_device:"端末コードが違うか、無効になっています",pin_not_set:"暗証番号が未設定です。自分のLINEのアプリ「タイムカード」で設定してください",bad_pin:"暗証番号が違います",already_in:"すでに出勤しています",not_in:"出勤が押されていません",bad_response:"通信に失敗しました",unknown_action:"サーバーがまだ新しくなっていません（経営者に伝えてください）"};
 const errMsg=e=>ERR[String(e&&e.message||e)]||("エラー："+String(e&&e.message||e));
+// 手当のボタン（ボトル手当・シャンパン/ワイン手当・同伴手当・ゴルフ同伴手当）。サーバーが対応していて、使いはじめる月（標準 2026-12）になったら出す
+const ALLOW_KINDS=[["bottle","ボトル手当"],["champ","シャンパン・ワイン手当"],["douhan","同伴手当"],["golf","ゴルフ同伴手当"]];
+const allowOn=()=>{ const st=S.data&&S.data.settings; if(!st||!st.allow||typeof st.allow!=="object") return false; const d=new Date(Date.now()-6*3600e3); return `${d.getFullYear()}-${pad(d.getMonth()+1)}`>=(st.allowFrom||"2026-12"); };
+const allowTxt=a=>ALLOW_KINDS.filter(([k])=>+(a||{})[k]>0).map(([k,l])=>l+(a[k]>1?`${a[k]}回`:"")).join("・");
 
 async function load(){
   if(!S.key){ S.data=null; render(); return; }
@@ -173,15 +180,17 @@ function renderModal(){
   const minsAgo=hm=>{ if(!hm) return 1e9; const [h,mi]=hm.split(":").map(Number); const n=new Date(); let x=(n.getHours()*60+n.getMinutes())-(h*60+mi); if(x<0) x+=1440; return x; };   // 夜中0時をまたいでも数える
   const undo = (mode==="out"&&minsAgo(x.in)<=15)?`<button class="btn ghost" id="undo" data-type="undoIn" style="width:100%">出勤を取り消す（押し間違い・${minsAgo(x.in)}分前）</button>`
              : (mode==="done"&&minsAgo(x.out)<=15)?`<button class="btn ghost" id="undo" data-type="undoOut" style="width:100%">退勤を取り消す（押し間違い・${minsAgo(x.out)}分前）</button>`:"";
-  const action = step?`<div class="ext"><div class="lb">今日のドリンク（いただいた杯数）</div><div class="cnt"><button type="button" id="drM" aria-label="1杯へらす">−</button><b id="drN">${S.modal.drinks}</b><button type="button" id="drP" aria-label="1杯ふやす">＋</button></div><div class="note" style="text-align:center">${S.modal.douhan?"✓ 同伴あり":"同伴なし"}　→ 杯数を合わせて「退勤」を押してください</div></div><button class="btn big out" id="go" ${S.busy?"disabled":""}>退　勤</button>`
-    : mode==="done"?`<div class="note" style="text-align:center">本日は退勤済みです（${dropZero(x.in)}〜${dropZero(x.out)}）。${undo?"押し間違いなら暗証番号を入れて取り消せます。":"修正は経営者に伝えてください。"}</div>${undo}`
+  const alStep=S.modal.step==="allow", alBtn=(mode==="out"||mode==="done")&&allowOn()&&!step&&!alStep?`<button type="button" class="al" id="alBtn">手当を記録（ボトル・シャンパン/ワイン・同伴・ゴルフ同伴）${allowTxt(x.allow)?`<small style="display:block;font-weight:400;font-size:12px">今日：${esc(allowTxt(x.allow))}</small>`:""}</button>`:"";
+  const action = alStep?`<div class="ext"><div class="lb">今日の手当（あった回数）</div>${ALLOW_KINDS.map(([k,l])=>`<div class="arow"><span>${l}${+D.settings.allow[k]>0?`<small>1回 ¥${(+D.settings.allow[k]).toLocaleString("ja-JP")}</small>`:""}</span><span class="cnt sm"><button type="button" data-ak="${k}" data-n="-1" aria-label="へらす">−</button><b id="al_${k}">${S.modal.allow[k]||0}</b><button type="button" data-ak="${k}" data-n="1" aria-label="ふやす">＋</button></span></div>`).join("")}</div><button class="btn big" id="alSave" ${S.busy?"disabled":""}>この内容で記録</button>`
+    : step?`<div class="ext"><div class="lb">今日のドリンク（いただいた杯数）</div><div class="cnt"><button type="button" id="drM" aria-label="1杯へらす">−</button><b id="drN">${S.modal.drinks}</b><button type="button" id="drP" aria-label="1杯ふやす">＋</button></div><div class="note" style="text-align:center">${S.modal.douhan?"✓ 同伴あり":"同伴なし"}　→ 杯数を合わせて「退勤」を押してください</div></div><button class="btn big out" id="go" ${S.busy?"disabled":""}>退　勤</button>`
+    : mode==="done"?`<div class="note" style="text-align:center">本日は退勤済みです（${dropZero(x.in)}〜${dropZero(x.out)}）。${undo?"押し間違いなら暗証番号を入れて取り消せます。":alBtn?"手当の記録は暗証番号を入れてから押してください。":"修正は経営者に伝えてください。"}</div>${alBtn}${undo}`
     : mode==="out"?`<div class="ext"><button type="button" class="dh ${S.modal.douhan?"on":""}" id="dhT">${S.modal.douhan?"✓ 今日は同伴あり":"同伴なし（あればタップ）"}</button></div>
-      <div class="brk">休憩 <input type="number" id="brk" value="${S.modal.brk||0}" min="0" max="300" step="5" inputmode="numeric"> 分</div><button class="btn big out" id="go" ${S.busy?"disabled":""}>退　勤</button>${undo}`
+      <div class="brk">休憩 <input type="number" id="brk" value="${S.modal.brk||0}" min="0" max="300" step="5" inputmode="numeric"> 分</div><button class="btn big out" id="go" ${S.busy?"disabled":""}>退　勤</button>${alBtn}${undo}`
     : `<div class="ext"><button type="button" class="dh ${S.modal.douhan?"on":""}" id="dhT">${S.modal.douhan?"✓ 今日は同伴あり":"同伴なし（あればタップ）"}</button></div><button class="btn big" id="go" ${S.busy?"disabled":""}>出　勤</button>`;
   return `<div class="ov" id="ov"><div class="md">
     <div class="who"><b>${esc(s.name)} さん</b><span>${x.in?`出勤 ${dropZero(x.in)}`:"未出勤"}${x.sched?"　"+esc(schedText(x.sched)):""}</span></div>
-    ${!step&&mode!=="done"&&needPin?`<div class="note" style="text-align:center">${s.hasPin?"暗証番号を入力してください":"暗証番号が未設定です。自分のLINEのアプリ「タイムカード」で設定してから押してください"}</div>`:""}
-    ${step?"":(mode!=="done"||undo)?pinUI:""}
+    ${!step&&!alStep&&mode!=="done"&&needPin?`<div class="note" style="text-align:center">${s.hasPin?"暗証番号を入力してください":"暗証番号が未設定です。自分のLINEのアプリ「タイムカード」で設定してから押してください"}</div>`:""}
+    ${(step||alStep)?"":(mode!=="done"||undo||alBtn)?pinUI:""}
     ${action}
     <div class="row"><button class="btn ghost" id="cancel" style="flex:1">閉じる</button></div>
   </div></div>`;
@@ -205,6 +214,22 @@ function bindModal(){
     S.busy=false; render();
   };
   const un=$("#undo"); if(un) un.onclick=()=>doPunch(un.dataset.type,un);
+  const alBtn=$("#alBtn"); if(alBtn) alBtn.onclick=async()=>{   // 暗証番号を確かめてから、手当の回数の画面へ
+    const D=S.data, s=D.staff.find(x=>x.id===S.modal.id), x=D.today.status[s.id]||{};
+    if(D.settings.kioskPin && S.pin.length<4){ toast("暗証番号を入力してください","ng"); return; }
+    S.busy=true; alBtn.disabled=true; alBtn.textContent="確認中…";
+    try{ await api("kioskCheck",{staffId:s.id,pin:S.pin}); S.modal.step="allow"; S.modal.allow={...(x.allow||{})}; clearTimeout(idleT); idleT=setTimeout(()=>{S.modal=null;render();},90000); }
+    catch(e){ toast(errMsg(e),"ng"); S.pin=""; }
+    S.busy=false; render();
+  };
+  document.querySelectorAll("[data-ak]").forEach(b=>b.onclick=()=>{ const k=b.dataset.ak; S.modal.allow[k]=Math.max(0,Math.min(99,(+S.modal.allow[k]||0)+(+b.dataset.n))); $("#al_"+k).textContent=S.modal.allow[k]; clearTimeout(idleT); idleT=setTimeout(()=>{S.modal=null;render();},90000); });
+  const alSave=$("#alSave"); if(alSave) alSave.onclick=async()=>{
+    const D=S.data, s=D.staff.find(x=>x.id===S.modal.id);
+    S.busy=true; alSave.disabled=true;
+    try{ const r=await api("kioskAllow",{staffId:s.id,pin:S.pin,allow:S.modal.allow}); S.data.today=r.today; const t=allowTxt((r.today.status[s.id]||{}).allow); S.modal=null; S.pin=""; toast(`${s.name} さん　手当を記録しました`,"ok",t||"手当なし"); setTimeout(load,3000); }
+    catch(e){ toast(errMsg(e),"ng"); S.pin=""; }
+    S.busy=false; render();
+  };
   const bump=n=>{ S.modal.drinks=Math.max(0,Math.min(99,S.modal.drinks+n)); $("#drN").textContent=S.modal.drinks; clearTimeout(idleT); idleT=setTimeout(()=>{S.modal=null;render();},45000); };
   if($("#drM")){ $("#drM").onclick=()=>bump(-1); $("#drP").onclick=()=>bump(1); }
   if($("#dhT")){ $("#dhT").onclick=()=>{ S.modal.douhan=!S.modal.douhan; const b=$("#dhT"); b.classList.toggle("on",S.modal.douhan); b.textContent=S.modal.douhan?"✓ 今日は同伴あり":"同伴なし（あればタップ）"; }; }
