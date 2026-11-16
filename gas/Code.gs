@@ -14,7 +14,7 @@
  *   4. デプロイ → 新しいデプロイ → ウェブアプリ（実行ユーザー: 自分 / アクセス: 全員）
  */
 
-const VERSION = "2026-11-15.3";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
+const VERSION = "2026-11-16.1";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
 const TZ = "Asia/Tokyo";
 const PROP = PropertiesService.getScriptProperties();
 
@@ -864,7 +864,7 @@ function handleDevice_(action, data, device) {
         if (!s.pin) throw new Error("pin_not_set");
         if (pinHash_(s.id, String(data.pin || "")) !== s.pin) throw new Error("bad_pin");
       }
-      const r = saveWish_({ month: data.month, days: data.days || {}, memo: data.memo || "" }, { sid: s.id, isAdmin: false, staff, admins: readAll_("admins"), settings, auth: { userId: "device:" + device.id, name: s.name } });
+      const r = saveWish_({ month: data.month, days: data.days || {}, memo: data.memo || "", touch: data.touch }, { sid: s.id, isAdmin: false, staff, admins: readAll_("admins"), settings, auth: { userId: "device:" + device.id, name: s.name } });
       return Object.assign(r, { months: kioskMonths_(settings) });
     }
     case "kioskCheck":   // 退勤の前に本人か確かめて、ドリンクの杯数を聞く人かを返す（iPadの一覧には載せない）
@@ -984,7 +984,41 @@ function saveWish_(data, c) {
   const inDays = data.days || {};
   let days = inDays, memo = String(data.memo || "").slice(0, 300), added = [], removed = [];
   const free = !isAdmin && selfOk_(staff.find(s => s.id === sid) || {});   // 承認が必要な人（needOk）以外は、自分で足した日がそのまま載り、変更・休みも自分でできる
-  if (!isAdmin) {
+  // 2026-11-16：公開済みの月は「シフト表そのもの」を本人が直す。画面は今のシフトを見せ、触った日だけ（touch）を送ってくる。
+  // 以前は「希望」どうしを比べていたので、管理者がシフト側だけ直した日（希望と食い違う日）は本人が送っても何も変わらなかった。
+  const shPub = free ? readAll_("shifts").find(r => r.month === month) : null;
+  const live = !!(free && shPub && shPub.status === "published" && data.touch && typeof data.touch === "object");
+  let liveCells = null;
+  if (live) {
+    const old = (prev && prev.days) || {}, today = bizDate_(), now = nowStr_().slice(0, 16);
+    const isOn = v => v && (v.t === "o" || v.t === "p"), hm = x => /^\d{2}:\d{2}$/.test(String(x || ""));
+    const nDays = new Date(+month.slice(0, 4), +month.slice(5), 0).getDate();
+    const cells = Object.assign({}, shPub.cells || {});
+    days = Object.assign({}, old);
+    Object.keys(data.touch).forEach(k => {
+      const d = +k; if (!(d >= 1 && d <= nDays) || String(d) !== String(k)) return;
+      if (month + "-" + ("0" + d).slice(-2) < today) return;                     // 過ぎた日は変えられない
+      const v = data.touch[k], ck = d + "_" + sid, cur = String(cells[ck] || ""), curBase = cur.split("|")[0], curTags = cur.split("|")[1] || "";
+      if (isOn(v)) {
+        const nv = (v.t === "p" && hm(v.from) && hm(v.to)) ? { t: "p", from: v.from, to: v.to } : { t: "o" };
+        const target = autoCell_(nv, settings);
+        const o = old[d], sameWish = isOn(o) && o.t === nv.t && (nv.t !== "p" || (o.from === nv.from && o.to === nv.to));
+        if (curBase === target && sameWish) return;
+        if (!sameWish) { nv.at = now; days[d] = nv; }
+        if (curBase !== target) { cells[ck] = target + (curTags.indexOf("d") >= 0 ? "|d" : ""); liveCells = cells; }   // 同伴の印は残す。早上がりの印は時間が変わったので外す
+        added.push(d);
+      } else {
+        const wasOn = !!curBase && curBase !== "OFF";
+        if (!wasOn && !isOn(old[d])) return;
+        delete days[d];
+        if (wasOn) { cells[ck] = "OFF"; liveCells = cells; }
+        removed.push(d);
+      }
+    });
+    const oldMemo = String((prev && prev.memo) || ""), more = memo.trim();
+    memo = (oldMemo && more ? oldMemo + "\n" + more : (oldMemo || more)).slice(0, 600);
+    if (!added.length && !removed.length && memo === oldMemo) return { wish: prev || { month, staffId: sid, days, memo, updatedAt: "" }, added: [], shift: shPub };
+  } else if (!isAdmin) {
     const old = (prev && prev.days) || {}, today = bizDate_();
     const isOn = v => v && (v.t === "o" || v.t === "p");
     days = {};
@@ -1012,7 +1046,9 @@ function saveWish_(data, c) {
   const w = { month, staffId: sid, days, memo, updatedAt: nowStr_() };
   upsert_("wishes", ["month", "staffId"], w);
   let autoShift = null;
-  if (free && (added.length || removed.length)) {   // ママは、公開後に足した日・変えた日・休みにした日を、すぐシフトに反映する
+  if (live) {
+    if (liveCells) { autoShift = Object.assign({}, shPub, { cells: liveCells }); upsert_("shifts", ["month"], autoShift); }
+  } else if (free && (added.length || removed.length)) {   // ママは、公開後に足した日・変えた日・休みにした日を、すぐシフトに反映する
     const sh = readAll_("shifts").find(r => r.month === month);
     if (sh && sh.status === "published") {
       const cells = Object.assign({}, sh.cells || {});
@@ -1021,15 +1057,15 @@ function saveWish_(data, c) {
       autoShift = Object.assign({}, sh, { cells }); upsert_("shifts", ["month"], autoShift);
     }
   }
-  log_(auth, "saveWish", month + " " + sid + (added.length ? " +" + added.sort((a, b) => a - b).join(",") : ""));
+  log_(auth, "saveWish", month + " " + sid + (added.length ? " +" + added.sort((a, b) => a - b).join(",") : "") + (removed.length ? " -" + removed.sort((a, b) => a - b).join(",") : "") + (live ? " live" : ""));
   if (settings.notifyWish && !isAdmin) {
     const who = staff.find(s => s.id === sid);
     const m = +month.slice(5);
     const list = added.sort((a, b) => a - b).map(d => m + "/" + d + (days[d].t === "p" ? `(${days[d].from}〜${days[d].to})` : "")).join("、");
     const offList = removed.sort((a, b) => a - b).map(d => m + "/" + d).join("、");
     const shNow = readAll_("shifts").find(r => r.month === month);
-    const afterPub = shNow && shNow.status === "published" && added.length && !autoShift;
-    const autoNote = autoShift ? "\n※ そのままシフト表に載せました（承認は不要の人です）。" : "";
+    const afterPub = shNow && shNow.status === "published" && added.length && !autoShift && !live;
+    const autoNote = (autoShift || live) ? "\n※ そのままシフト表に載せました（承認は不要の人です）。" : "";
     pushTo_(admins.map(a => a.userId), `【${settings.name}】${who ? who.name : ""}さんが${m}月の希望を${removed.length ? "変更" : prev ? "追加" : "提出"}しました。${list ? "\n入れる日：" + list : ""}${offList ? "\n休みにした日：" + offList : ""}${memo !== String((prev && prev.memo) || "") ? "\n連絡事項：" + memo.split("\n").pop() : ""}${afterPub ? "\n※ 公開後の追加です。管理画面の「シフト作成」に承認待ちとして出るので、「承認」か「見送り」を押してください。" : ""}${autoNote}`);
   }
   return autoShift ? { wish: w, added, shift: autoShift } : { wish: w, added };

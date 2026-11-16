@@ -230,7 +230,7 @@ const WEB_KEY = "rinoa-admin-key";
 /* ============================================================
    共通
    ============================================================ */
-const SERVER_VERSION="2026-11-15.3";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
+const SERVER_VERSION="2026-11-16.1";   // Apps Script 側の VERSION と一致していれば再デプロイ済み
 const TC_MODES={nearest:"四捨五入（15分未満は切り捨て、15分以上は30分扱い）",floor:"すべて切り捨て",ceil:"すべて切り上げ",favor:"出勤は切り上げ・退勤は切り捨て"};
 const WD = ["日","月","火","水","木","金","土"];
 const pad = n => String(n).padStart(2,"0");
@@ -507,6 +507,7 @@ function vMyShift(m){
     ${pub?`${vMonthCal(ym,{meId:m.id})}
     <div class="legend"><span><i style="background:var(--chip);box-shadow:inset 0 0 0 1.5px var(--accent)"></i>あなた（太枠）</span><span><i style="background:var(--douhan)"></i>同伴出勤</span><span><i style="background:var(--early)"></i>早上がり</span><span><i style="background:var(--today);box-shadow:inset 0 0 0 2px var(--accent)"></i>今日</span><span>点線＝時間が標準と違う</span></div>
     <div class="sum"><div><b>${days}</b><span>あなたの出勤日数</span></div><div><b>${fmtH(hours)}</b><span>予定時間（h）</span></div><div><b>${n-days}</b><span>休み</span></div></div>
+    ${ym>=BIZ_YM&&!Store.isAdmin?`<div class="wishctl"><button class="btn block" data-act="editMyShift">${m.needOk?"この月に出勤を足す（承認制）":"この月の自分のシフトを変える（出勤を足す・時間・休み）"}</button></div>`:""}
     <div class="sum" style="grid-template-columns:repeat(${m.drinkOn?2:1},1fr)"><div><b>${dhDays}</b><span>同伴した日数（今月の記録）</span></div>${m.drinkOn?`<div><b>${drinks}</b><span>ドリンク（杯・今月の記録）</span></div>`:""}</div>`
     :`<div class="empty"><b>${monthLabel(ym)}のシフトはまだ公開されていません</b>${sh.status==="collecting"?`希望は「希望を出す」から送ってください（当日まで出せます）。`:(S.notifyPublish===true?"経営者が作成中です。公開されるとLINEでお知らせします。":"経営者が作成中です。公開されたらここに出ます。")}</div>`}
   </section>
@@ -521,12 +522,33 @@ function vDayPeople(ym,d,me){
   <div class="people">${c.on.length?c.on.map(r=>`<div class="pr"><span class="pill ${r.info.tags?.douhan?"dh":r.info.tags?.early?"ea":"on"}">${esc(tagLabel(r.info.tags)||"出勤")}</span><span class="nm">${esc(r.s.name)}</span><span class="tm">${dropZero(r.info.start)}〜${dropZero(r.info.end)}</span></div>`).join(""):(c.closed?"":'<div class="note">出勤者なし</div>')}
   ${c.off.map(r=>`<div class="pr off"><span class="pill">休</span><span class="nm">${esc(r.s.name)}</span><span class="tm"></span></div>`).join("")}</div></section>`;
 }
+// 今日から先は確定シフトのマス、過ぎた日は出した希望から、本人の「入る日」を作る
+function liveWishDays(m,ym,sentDays){
+  const {y,m:mo}=parseYM(ym), S=Store.settings, cells=Store.shiftOf(ym).cells||{}, out={}, isOn=v=>v?.t==="o"||v?.t==="p";
+  for(let d=1;d<=daysIn(y,mo);d++){
+    const sv=sentDays[d], cell=cells[`${d}_${m.id}`];
+    if(`${ym}-${pad(d)}`<BIZ_TODAY||!cell){ if(isOn(sv)) out[d]=sv.t==="p"?{t:"p",from:sv.from,to:sv.to}:{t:"o"}; continue; }
+    const info=cellInfo(cell,S); if(!info||info.kind==="off") continue;
+    out[d]=info.kind==="custom"?{t:"p",from:info.start,to:info.end}:{t:"o"};
+  }
+  return out;
+}
+// 送る前と比べて変えた日だけを取り出す（null＝休みにする）
+function wishTouch(W){
+  const eq=(a,b)=>{ const on=v=>v?.t==="o"||v?.t==="p"; if(!on(a)&&!on(b)) return true; if(!on(a)||!on(b)) return false; return a.t===b.t&&(a.t!=="p"||(a.from===b.from&&a.to===b.to)); };
+  const out={}; new Set([...Object.keys(W.init||{}),...Object.keys(W.days||{})]).forEach(d=>{ if(!eq(W.init?.[d],W.days?.[d])) out[d]=W.days[d]||null; });
+  return out;
+}
 function vWish(m){
   // 締切なし：当日まで出せる。一度送った日はスタッフは変えられない（変更は かよさんに連絡 → 管理者が代理入力で直す）
   const ym=state.wishMonth, {y,m:mo}=parseYM(ym), S=Store.settings, adm=Store.isAdmin, saved=Store.wishesOf(ym)[m.id];
   const sentDays=saved?.days||{}, locked=d=>!adm&&m.needOk&&(sentDays[d]?.t==="o"||sentDays[d]?.t==="p"), past=d=>!adm&&`${ym}-${pad(d)}`<BIZ_TODAY;
   const editable=adm||ym>=BIZ_YM;
-  if(!state.draftWish||state.draftWish.month!==ym||state.draftWish.staffId!==m.id){ state.draftWish={month:ym,staffId:m.id,days:{...sentDays},memo:adm?(saved?.memo||""):""}; state.draftDirty=false; }
+  // 公開済みの月で承認のいらない人は、希望ではなく「今のシフト」を見せて直してもらう（管理者がシフト側だけ直した日も、本人の画面と食い違わない）
+  const liveMode=!adm&&!m.needOk&&ym>=BIZ_YM&&Store.shiftOf(ym).status==="published";
+  const srcDays=liveMode?liveWishDays(m,ym,sentDays):{...sentDays}, sig=JSON.stringify([liveMode,srcDays]);
+  const same=state.draftWish&&state.draftWish.month===ym&&state.draftWish.staffId===m.id;
+  if(!same||(!state.draftDirty&&state.draftWish.sig!==sig)){ const keepMemo=same?($("#wMemo")?.value??state.draftWish.memo):(adm?(saved?.memo||""):""); state.draftWish={month:ym,staffId:m.id,days:JSON.parse(JSON.stringify(srcDays)),init:srcDays,live:liveMode,sig,memo:keepMemo}; state.draftDirty=false; }
   const W=state.draftWish, n=daysIn(y,mo), first=dow(y,mo,1), cells=[];
   for(let i=0;i<first;i++) cells.push('<div class="d empty"></div>');
   let xs=0;
@@ -549,15 +571,16 @@ function vWish(m){
   return `<section class="card">
     ${vMonthNav("wm",ym,"の希望")}
     <div class="row space" style="margin:8px 0 10px"><span>${statusBadge(Store.shiftOf(ym).status)}</span><span class="note">${editable?"当日まで出せます":"過ぎた月です"}</span></div>
-    ${editable?`<p class="note" style="margin:0 0 8px"><b>入れる日をタップすると、自分の名前が入ります。</b>もう一度タップで <b style="color:var(--wish-p)">時間</b>（時間指定）、さらにタップで取り消し。何も押していない日は「入らない」扱いです。</p>${adm||!m.needOk?`<div class="hint" style="margin:0 0 8px">送信した日はそのままシフト表に載ります（承認は不要）。取り消しや時間の変更も、ここでタップして送り直せば反映されます。</div>`:`<div class="hint" style="margin:0 0 8px">🔒 あなたの出勤申請は経営者の承認が必要です。送信した日は、あとから変えたり消したりできません。<b>変更・取り消しは かよさんに連絡</b>してください。</div>`}`:""}
+    ${!adm&&ym!==BIZ_YM&&Store.shiftOf(BIZ_YM).status==="published"?`<div style="margin:0 0 10px"><button class="btn ghost sm" data-act="wmThis">今月（${+BIZ_YM.slice(5)}月）のシフトを変えたいときはこちら</button></div>`:""}
+    ${editable?`<p class="note" style="margin:0 0 8px"><b>入れる日をタップすると、自分の名前が入ります。</b>もう一度タップで <b style="color:var(--wish-p)">時間</b>（時間指定）、さらにタップで取り消し。何も押していない日は「入らない」扱いです。</p>${liveMode?`<div class="hint" style="margin:0 0 8px"><b>この月はシフト公開済みです。下に出ているのが、今のあなたのシフトです。</b>日をタップして変え（✓ 出勤 → <b style="color:var(--wish-p)">時間</b>で時間を変更・早上がり → もう一度で休み）、「変更を送信」を押すと、<b>承認なしでそのままシフト表が変わります</b>。</div>`:adm||!m.needOk?`<div class="hint" style="margin:0 0 8px">送信した日はそのままシフト表に載ります（承認は不要）。取り消しや時間の変更も、ここでタップして送り直せば反映されます。</div>`:`<div class="hint" style="margin:0 0 8px">🔒 あなたの出勤申請は経営者の承認が必要です。送信した日は、あとから変えたり消したりできません。<b>変更・取り消しは かよさんに連絡</b>してください。</div>`}`:""}
     <div class="cal mc wishcal">${WD.map((w,i)=>`<div class="dh ${i===6?"sat":""} ${i===0?"sun":""}">${w}</div>`).join("")}${cells.join("")}</div>
     <div class="legend"><span>名前＝その日に入る人${pub?"（確定）":"（確定前は「出勤できる」と答えている人）"}</span><span><i style="background:var(--chip);box-shadow:inset 0 0 0 1.5px var(--accent)"></i>あなた</span><span><b style="color:var(--wish-p)">時間</b>＝時間指定</span></div>
     ${editable&&sel&&sv?.t==="p"&&!locked(sel)?`<div class="timebox"><input type="time" id="wFrom" data-wt="from" data-d="${sel}" value="${esc(sv.from||"10:00")}" aria-label="開始"><span>〜</span><input type="time" id="wTo" data-wt="to" data-d="${sel}" value="${esc(sv.to||"15:00")}" aria-label="終了"></div><p class="note">${mo}月${sel}日は この時間なら出勤できる、という指定です。</p>`:""}
-    <div class="legend"><span>出勤希望 <b style="color:var(--accent)">${xs}</b> 日</span>${saved?`<span>最終送信：${esc((saved.updatedAt||"").slice(0,16).replace("T"," "))}</span>`:'<span>まだ送信していません</span>'}</div>
+    <div class="legend"><span>${liveMode?"これから先を含む出勤":"出勤希望"} <b style="color:var(--accent)">${xs}</b> 日</span>${saved?`<span>最終送信：${esc((saved.updatedAt||"").slice(0,16).replace("T"," "))}</span>`:'<span>まだ送信していません</span>'}</div>
     ${sel&&locked(sel)?`<p class="note">${mo}月${sel}日は送信済みです${sentDays[sel].t==="p"?`（${dropZero(sentDays[sel].from)}〜${dropZero(sentDays[sel].to)}）`:""}。変更・取り消しは かよさんに連絡してください。</p>`:""}
     ${!adm&&saved?.memo?`<div class="st" style="margin-top:10px;text-align:left;white-space:pre-wrap"><b>送信済みの連絡事項</b><br>${esc(saved.memo)}</div>`:""}
     ${editable?`<label class="f" style="margin-top:10px;display:flex;flex-direction:column;gap:5px;font-size:13px;font-weight:700">${!adm&&saved?.memo?"連絡事項を書き足す":"連絡事項"}<span class="h">（例：15日は学校行事のため午前のみ可）</span><textarea id="wMemo" maxlength="300" placeholder="任意">${esc(W.memo)}</textarea></label>
-    <div class="wishctl"><button class="btn block" data-act="sendWish" ${state.busy?"disabled":""}>${saved?(adm?"希望を更新して送信":"追加した日を送信"):"希望を送信"}</button></div><p class="note" id="wDirty" style="margin:6px 0 0;color:var(--warn)">${state.draftDirty?"未送信の変更があります":""}</p>`
+    <div class="wishctl"><button class="btn block" data-act="sendWish" ${state.busy?"disabled":""}>${liveMode?"変更を送信":saved?(adm?"希望を更新して送信":"追加した日を送信"):"希望を送信"}</button></div><p class="note" id="wDirty" style="margin:6px 0 0;color:var(--warn)">${state.draftDirty?"未送信の変更があります":""}</p>`
     :`<div class="hint" style="margin-top:10px">${monthLabel(ym)}は過ぎた月です。変更がある場合は かよさんに連絡してください。</div>`}
   </section>`;
 }
@@ -859,6 +882,8 @@ app.addEventListener("click", async e=>{
     case "atab": state.atab=t.dataset.v; state.sheetDay=null; state.lineText=null; go(); break;
     case "pm": setMonth(+t.dataset.n); break;
     case "wm": state.wishMonth=addMonth(state.wishMonth,+t.dataset.n); state.selDay=null; state.draftWish=null; go(); break;
+    case "wmThis": state.wishMonth=BIZ_YM; state.selDay=null; state.draftWish=null; go(); break;
+    case "editMyShift": state.wishMonth=state.month; state.tab="wish"; state.selDay=null; state.draftWish=null; go(); window.scrollTo(0,0); break;
     case "tcm": state.tcMonth=addMonth(state.tcMonth,+t.dataset.n); go(); break;
     case "bm": state.bMonth=addMonth(state.bMonth,+t.dataset.n); go(); break;
     case "bKind": keepBForm(); state.bForm.kind=t.dataset.v; go(); break;
@@ -880,7 +905,7 @@ app.addEventListener("click", async e=>{
     case "viewAs": state.proxyId=t.dataset.id; state.role="staff"; state.tab="wish"; state.draftWish=null; go(); toast(`${Store.staff.find(s=>s.id===t.dataset.id)?.name||""}さんとして入力中（代理）`); break;
     case "wishDay": { const d=+t.dataset.d, W=state.draftWish, cur=W.days[d]?.t; if(cur!=="o"&&cur!=="p") W.days[d]={t:"o"}; else if(cur==="o") W.days[d]={t:"p",from:Store.settings.openStart||"10:00",to:Store.settings.openEnd||"15:00"}; else delete W.days[d]; state.selDay=d; state.draftDirty=true; go(); break; }
     case "sendWish": { const W=state.draftWish; W.memo=$("#wMemo")?.value||""; if(!Store.isAdmin&&me()?.needOk&&!confirm("送信した日は、あとから変えたり消したりできません（変更は かよさんに連絡）。送信しますか？")) break;
-      await busy(async()=>{ await Store.saveWish({month:W.month,staffId:W.staffId,days:W.days,memo:W.memo}); state.draftWish=null; state.draftDirty=false; toast("希望を送信しました"); }); break; }
+      await busy(async()=>{ const live=!!W.live&&!Store.isAdmin; await Store.saveWish(live?{month:W.month,staffId:W.staffId,days:W.days,memo:W.memo,touch:wishTouch(W)}:{month:W.month,staffId:W.staffId,days:W.days,memo:W.memo}); state.draftWish=null; state.draftDirty=false; toast(live?"シフト表に反映しました":"希望を送信しました"); }); break; }
     case "wishLocked": state.selDay=+t.dataset.d; go(); toast("送信済みの日です。変更は かよさんに連絡してください"); break;
     case "status": await busy(async()=>{ const sh={...Store.shiftOf(state.month)}; sh.cells={...sh.cells}; sh.status=t.dataset.v; await Store.saveShiftNow(sh); toast({published:Store.settings.notifyPublish===true?"シフトを公開し、スタッフにLINEで通知しました":"シフトを公開しました",editing:"受付を締め切りました",collecting:"希望受付を再開しました"}[sh.status]); }); break;
     case "applyWish": { const wishes=Store.wishesOf(state.month), {y,m}=parseYM(state.month); let n=0,off=0; writeCells(c=>{ activeStaff().forEach(s=>{ const wdoc=wishes[s.id]; if(!wdoc) return; const days=wdoc.days||{}; for(let d=1;d<=daysIn(y,m);d++){ const k=`${d}_${s.id}`; if(c[k]) continue; const v=days[d]; if(isClosedDay(y,m,d)){ c[k]="OFF"; continue; } if(v?.t==="o"){ c[k]="ON"; n++; } else if(v?.t==="p"&&v.from&&v.to){ c[k]=(v.from===S.openStart&&v.to===S.openEnd)?"ON":`C:${v.from}-${v.to}`; n++; } else { c[k]="OFF"; off++; } } }); }); toast(`提出済みの希望を反映：出勤 ${n}マス・休 ${off}マス（未提出の人は変えていません）`); break; }

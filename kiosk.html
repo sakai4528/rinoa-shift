@@ -267,9 +267,25 @@ function wishBody(D){
   const M=(D.months||{})[W.ym]||{status:"collecting"}, pub=M.status==="published";
   const cnt=Object.values(W.days).filter(v=>v&&(v.t==="o"||v.t==="p")).length;
   return `<div class="card"><div class="mnav"><button data-wmv="-1" ${W.ym===Object.keys(D.months).sort()[0]?"disabled":""}>‹ 前の月</button><div class="m">${esc(s.name)} さん　${monthLabel(W.ym)}</div><button data-wmv="1" ${W.ym===Object.keys(D.months).sort().slice(-1)[0]?"disabled":""}>次の月 ›</button></div>
-    <p class="note" style="margin:8px 0"><b>入れる日をタップすると「✓ 入る」になります。</b>もう一度タップで取り消し。${s.needOk?"あなたの申請は経営者の承認のあとシフト表に載ります。":"送信するとそのままシフト表に載ります。"}過ぎた日と定休日は選べません。</p>
+    <p class="note" style="margin:8px 0">${W.live?`<b>この月は公開済みです。「✓ 入る」が今のあなたの出勤日です。</b>タップで 入る／休み を切り替えて送信すると、承認なしでそのままシフト表が変わります。時間を変えたいときはLINEの画面か、経営者へ。`:`<b>入れる日をタップすると「✓ 入る」になります。</b>もう一度タップで取り消し。${s.needOk?"あなたの申請は経営者の承認のあとシフト表に載ります。":"送信するとそのままシフト表に載ります。"}`}過ぎた日と定休日は選べません。</p>
     ${calHTML(W.ym,{meId:W.sid,draft:W.days,editable:true})}
     <div class="row" style="margin-top:14px;display:flex;gap:10px;align-items:center"><span class="note" style="flex:1">入れる日：<b style="font-size:20px">${cnt}</b> 日${W.dirty?"　（未送信の変更があります）":""}</span><button class="btn ghost" data-wcancel="1">やめる</button><button class="btn" data-wsend="1" ${S.busy||!W.dirty?"disabled":""} style="min-width:200px">送信する</button></div></div>`;
+}
+// 公開済みの月で承認のいらない人は、希望ではなく「今のシフト」から始める（今日から先は確定シフトのマス、過ぎた日は出した希望）
+function setWishDraft(W){
+  const D=S.data, M=(D.months||{})[W.ym]||{wishes:{},cells:{}}, s=D.staff.find(x=>x.id===W.sid)||{}, sent=(M.wishes||{})[W.sid]||{}, isOn=v=>v&&(v.t==="o"||v.t==="p");
+  W.live=M.status==="published"&&!s.needOk; let days={};
+  if(!W.live) days={...sent};
+  else { const [y,mo]=W.ym.split("-").map(Number), n=new Date(y,mo,0).getDate();
+    for(let d=1;d<=n;d++){ const cell=(M.cells||{})[`${d}_${W.sid}`], sv=sent[d];
+      if(`${W.ym}-${pad(d)}`<BIZ_TODAY||!cell){ if(isOn(sv)) days[d]=sv.t==="p"?{t:"p",from:sv.from,to:sv.to}:{t:"o"}; continue; }
+      const t=cellTimes(cell); if(!t) continue; days[d]=t.cus?{t:"p",from:t.s,to:t.e}:{t:"o"}; } }
+  W.days=days; W.init=JSON.parse(JSON.stringify(days)); W.dirty=false;
+}
+function wishTouch(W){
+  const on=v=>v&&(v.t==="o"||v.t==="p"), eq=(a,b)=>{ if(!on(a)&&!on(b)) return true; if(!on(a)||!on(b)) return false; return a.t===b.t&&(a.t!=="p"||(a.from===b.from&&a.to===b.to)); };
+  const out={}; new Set([...Object.keys(W.init||{}),...Object.keys(W.days||{})]).forEach(d=>{ if(!eq((W.init||{})[d],W.days[d])) out[d]=W.days[d]||null; });
+  return out;
 }
 let wishIdle;
 function touchWish(){ clearTimeout(wishIdle); wishIdle=setTimeout(()=>{ if(S.tab==="wish"){ S.wish=null; S.pin=""; render(); } },120000); }
@@ -282,13 +298,13 @@ function bindShiftWish(){
   document.querySelectorAll("[data-wcancel]").forEach(b=>b.onclick=()=>{ S.wish=null; S.pin=""; render(); });
   const ok=document.querySelector("[data-wok]"); if(ok) ok.onclick=async()=>{ const D=S.data, W=S.wish; if(D.settings.kioskPin&&S.pin.length<4){ toast("暗証番号を入力してください","ng"); return; }
     S.busy=true; render();
-    try{ await api("kioskCheck",{staffId:W.sid,pin:S.pin}); W.pin=S.pin; W.step="days"; const M=(D.months||{})[W.ym]||{wishes:{}}; W.days={...((M.wishes||{})[W.sid]||{})}; W.dirty=false; }
+    try{ await api("kioskCheck",{staffId:W.sid,pin:S.pin}); W.pin=S.pin; W.step="days"; const M=(D.months||{})[W.ym]||{wishes:{}}; setWishDraft(W); }
     catch(e){ toast(errMsg(e),"ng"); S.pin=""; }
     S.busy=false; touchWish(); render(); };
-  document.querySelectorAll("[data-wmv]").forEach(b=>b.onclick=()=>{ const W=S.wish, ms=Object.keys(S.data.months||{}).sort(), i=ms.indexOf(W.ym)+(+b.dataset.wmv); if(!ms[i]) return; if(W.dirty&&!confirm("送信していない変更があります。月を変えると消えます。よろしいですか？")) return; W.ym=ms[i]; const M=S.data.months[W.ym]; W.days={...((M.wishes||{})[W.sid]||{})}; W.dirty=false; touchWish(); render(); });
+  document.querySelectorAll("[data-wmv]").forEach(b=>b.onclick=()=>{ const W=S.wish, ms=Object.keys(S.data.months||{}).sort(), i=ms.indexOf(W.ym)+(+b.dataset.wmv); if(!ms[i]) return; if(W.dirty&&!confirm("送信していない変更があります。月を変えると消えます。よろしいですか？")) return; W.ym=ms[i]; setWishDraft(W); touchWish(); render(); });
   if(S.wish&&S.wish.step==="days") document.querySelectorAll(".cal .d[data-day]").forEach(b=>b.onclick=()=>{ const W=S.wish, d=+b.dataset.day, v=W.days[d]; if(v&&(v.t==="o"||v.t==="p")) delete W.days[d]; else W.days[d]={t:"o"}; W.dirty=true; touchWish(); render(); });
   const send=document.querySelector("[data-wsend]"); if(send) send.onclick=async()=>{ const W=S.wish, s=S.data.staff.find(x=>x.id===W.sid); S.busy=true; render();
-    try{ const r=await api("kioskWish",{staffId:W.sid,pin:W.pin,month:W.ym,days:W.days}); if(r.months) S.data.months=r.months; S.wish=null; S.pin="";
+    try{ const r=await api("kioskWish",W.live?{staffId:W.sid,pin:W.pin,month:W.ym,days:W.days,touch:wishTouch(W)}:{staffId:W.sid,pin:W.pin,month:W.ym,days:W.days}); if(r.months) S.data.months=r.months; S.wish=null; S.pin="";
       toast(`${s.name} さん　出勤申請を送りました`,"ok",s.needOk?"経営者の承認のあとシフト表に載ります":"シフト表に載りました"); S.tab="shift"; S.ym=W.ym; }
     catch(e){ toast(errMsg(e),"ng"); }
     S.busy=false; render(); };
