@@ -145,6 +145,13 @@ Google ドライブの「リノア シフト表データ」スプレッドシー
 - 端末コードが漏れたと思ったら、設定画面で「無効にする」→ 新しいコードを発行して iPad に入れ直してください
 - `kiosk.html` の先頭にある `CONFIG.apiUrl` は `index.html` と同じ Apps Script の URL です
 
+## GitHub からの自動デプロイ（Mac mini が無くても Apps Script を更新できる）
+- `gas/` を `main` に push すると `.github/workflows/deploy-gas.yml` が `clasp push` → 既存のデプロイを新バージョンにする（URL は変わらない）
+- 一度だけ GitHub の Settings → Secrets and variables → Actions に入れる：
+  - Secrets `CLASPRC_JSON`：どこかのパソコンで `npx @google/clasp@2.4.2 login` したあとの `~/.clasprc.json` の中身
+  - Variables `AUTO_DEPLOY=true`、`SCRIPT_ID`（Apps Script の「プロジェクトの設定」のスクリプトID）、`DEPLOYMENT_ID`（「デプロイを管理」に出るウェブアプリのデプロイID）
+- clasp が使えないときの代わり：ブラウザで「リノア シフト表データ」→ 拡張機能 → Apps Script を開き、`gas/Code.gs` の中身を貼って保存 →「デプロイを管理」→ 鉛筆 → 新バージョン → デプロイ
+
 ## 2026-11-15 手当のボタン（12月から）
 - **ボトル手当・シャンパン/ワイン手当・同伴手当・ゴルフ同伴手当** を、本人が店舗iPad（名前 → 暗証番号 → 「手当を記録」）か LINE のアプリ「タイムカード」（今日の手当）で回数で入れる。出勤を押した日の記録（`timecards` の `days[d].allow = { bottle, champ, douhan, golf }`）に入る
 - 金額は 設定 →「手当（1回あたりの金額）」。0 は払わない。**同伴手当に金額を入れると、同伴は「時給×同伴1回で足す時間」ではなく、その金額×回数**になる。同伴手当を1回以上入れた日は「同伴」の印も付く

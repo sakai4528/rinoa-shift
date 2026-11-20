@@ -1,0 +1,43 @@
+# gas/ を main に push したら、Mac mini なしで Apps Script を更新する（URL は変えない）
+#   使うには GitHub の Settings → Secrets and variables → Actions で
+#     Secrets:   CLASPRC_JSON … clasp login したあとの ~/.clasprc.json の中身
+#     Variables: AUTO_DEPLOY=true / SCRIPT_ID（Apps Script のスクリプトID）/ DEPLOYMENT_ID（「デプロイを管理」に出るウェブアプリのデプロイID）
+#   AUTO_DEPLOY が true でないあいだは何もしない。画面（index.html / kiosk.html）は GitHub Pages が別に公開する
+name: deploy-gas
+on:
+  push:
+    branches: [main]
+    paths: ["gas/**", ".github/workflows/deploy-gas.yml"]
+  workflow_dispatch:
+concurrency: deploy-gas
+jobs:
+  deploy:
+    if: ${{ vars.AUTO_DEPLOY == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: "22" }
+      - name: clasp の用意
+        run: |
+          npm install -g @google/clasp@2.4.2
+          test -n "$RC" || { echo "GitHub の Secrets に CLASPRC_JSON（~/.clasprc.json の中身）を入れてください"; exit 1; }
+          test -n "${{ vars.SCRIPT_ID }}" || { echo "GitHub の Variables に SCRIPT_ID を入れてください"; exit 1; }
+          printf '%s' "$RC" > ~/.clasprc.json
+          printf '{"scriptId":"%s","rootDir":"."}' "${{ vars.SCRIPT_ID }}" > gas/.clasp.json
+        env: { RC: "${{ secrets.CLASPRC_JSON }}" }
+      - name: 構文チェック
+        run: cp gas/Code.gs "$RUNNER_TEMP/Code.js" && node --check "$RUNNER_TEMP/Code.js"
+      - name: push（コードを送る）
+        working-directory: gas
+        run: clasp push -f
+      - name: 新バージョンにする（同じデプロイを更新。URL は変わらない）
+        working-directory: gas
+        run: |
+          test -n "${{ vars.DEPLOYMENT_ID }}" || { echo "GitHub の Variables に DEPLOYMENT_ID を入れてください（Apps Script の「デプロイを管理」で確認）"; exit 1; }
+          clasp deploy -i "${{ vars.DEPLOYMENT_ID }}" -d "github ${GITHUB_SHA::7}"
+      - name: 動作確認（VERSION）
+        run: |
+          url="$(grep -o 'https://script.google.com/macros/s/[A-Za-z0-9_-]*/exec' index.html | head -1)"
+          curl -fsSL -m 30 "$url" && echo
