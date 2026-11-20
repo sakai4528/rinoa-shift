@@ -14,7 +14,7 @@
  *   4. デプロイ → 新しいデプロイ → ウェブアプリ（実行ユーザー: 自分 / アクセス: 全員）
  */
 
-const VERSION = "2026-11-16.1";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
+const VERSION = "2026-11-20.1";   // 画面側（index.html の SERVER_VERSION）と合わせる。再デプロイの確認用
 const TZ = "Asia/Tokyo";
 const PROP = PropertiesService.getScriptProperties();
 
@@ -431,6 +431,9 @@ function cellMins_(val, S) {
   if (base.indexOf("C:") === 0) { const p = base.slice(2).split("-"); s = p[0]; e = p[1]; }
   return spanMins_(hm2m_(s), hm2m_(e), 0);
 }
+// お給料・勤務時間表に使う打刻。2026年10月の打刻は練習なので使わず、10月までは K-style（R8）の時間で計算する（2026-11-20 やっさん）
+const TIMECARD_FROM = "2026-11";
+function payTimecards_(month) { return month < TIMECARD_FROM ? [] : readAll_("timecards").filter(r => r.month === month); }
 function computePay_(month) {
   const S = getSettings_();
   const prem = +S.nightExtra || 0;
@@ -439,7 +442,7 @@ function computePay_(month) {
   const douhanH = S.douhanHours === undefined || S.douhanHours === "" ? 1 : +S.douhanHours || 0;
   const AMT = allowAmounts_(S);   // 手当の金額（円／1回）
   const staff = readAll_("staff");
-  const tcs = readAll_("timecards").filter(r => r.month === month);
+  const tcs = payTimecards_(month);
   const sh = readAll_("shifts").find(r => r.month === month);
   const cells = sh && sh.status === "published" ? (sh.cells || {}) : {};
   const bottles = bottlesOf_(month);
@@ -541,7 +544,7 @@ function hoursStaff_(month, tcs) {
 function writeHoursMonth_(ss, month) {
   const S = getSettings_();
   const y = +month.slice(0, 4), m = +month.slice(5, 7), n = new Date(y, m, 0).getDate();
-  const tcs = readAll_("timecards").filter(r => r.month === month);
+  const tcs = payTimecards_(month);
   const shRow = readAll_("shifts").find(r => r.month === month);
   const cells = shRow && shRow.status === "published" ? (shRow.cells || {}) : {};
   const pay = computePay_(month), payOf = id => pay.staff.find(r => r.staffId === id) || {};
