@@ -21,7 +21,7 @@ jobs:
         with: { node-version: "22" }
       - name: clasp の用意
         run: |
-          npm install -g @google/clasp@2.4.2
+          npm install -g @google/clasp@3.4.1
           test -n "$RC" || { echo "GitHub の Secrets に CLASPRC_JSON（~/.clasprc.json の中身）を入れてください"; exit 1; }
           test -n "${{ vars.SCRIPT_ID }}" || { echo "GitHub の Variables に SCRIPT_ID を入れてください"; exit 1; }
           printf '%s' "$RC" > ~/.clasprc.json
